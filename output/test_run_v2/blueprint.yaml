@@ -1,0 +1,489 @@
+api_version: meta-agent.biotech/v1alpha1
+kind: SystemBlueprint
+metadata:
+  name: kras-g12c-screening-pipeline
+  version: 1.0.0
+  description: Virtual screening pipeline for KRAS G12C inhibitors. Docks 50K compounds (Smina), filters
+    for Cys12 proximity, rescores (GNINA), and validates via MD (GROMACS) on Cloud Batch.
+  session_id: ''
+  created_by: recruitment_board
+  created_at: '2026-02-17T10:42:45.032457Z'
+  tags: []
+agents:
+- api_version: meta-agent.biotech/v1alpha1
+  kind: AgentBlueprint
+  name: data_prep_agent
+  version: 1.0.0
+  description: 'Fetches ChEMBL compounds, filters for drug-likeness. Prepares receptor (PDB: 6OIM) RETAINING
+    GDP/Mg cofactors and removing co-crystallized ligand.'
+  status: new
+  agent_config:
+    temperature: 0.2
+    max_output_tokens: 4096
+    system_instruction: ''
+    decided_by: computational_chemist
+    rationale: ''
+  skill_references: []
+  reference_implementations: []
+  runtime:
+    type: cloud_batch
+    execution_pattern: SYNC
+    compute:
+      cpu: '4'
+      memory: 16Gi
+      timeout_seconds: 1800
+      max_retries: 2
+      spot_vm: true
+    scaling:
+      min_instances: 0
+      max_instances: 10
+      concurrency: 1
+    network:
+      egress_policy: deny-all
+      decided_by: ''
+      rationale: ''
+    decided_by: computational_chemist
+    rationale: Pre-processing is required before docking. CPU-bound.
+  data_inputs: []
+  data_outputs: []
+  interface:
+    protocol: A2A
+    inputs: []
+    outputs: []
+  error_handling:
+    max_retries: 2
+    backoff: exponential
+    retryable_errors: []
+    fallback_action: notify_manager
+    decided_by: ''
+  env_vars: {}
+  testing:
+    unit_tests: []
+- api_version: meta-agent.biotech/v1alpha1
+  kind: AgentBlueprint
+  name: smina_docking_agent
+  version: 1.0.0
+  description: Performs high-throughput docking of 50K compounds using Smina (Vina fork) to filter for
+    geometric fit.
+  status: new
+  agent_config:
+    temperature: 0.2
+    max_output_tokens: 4096
+    system_instruction: ''
+    decided_by: computational_chemist
+    rationale: ''
+  skill_references: []
+  reference_implementations: []
+  runtime:
+    type: cloud_batch
+    execution_pattern: ASYNC_BATCH
+    compute:
+      cpu: '16'
+      memory: 32Gi
+      timeout_seconds: 1800
+      max_retries: 2
+      spot_vm: true
+    scaling:
+      min_instances: 0
+      max_instances: 10
+      concurrency: 1
+    network:
+      egress_policy: deny-all
+      decided_by: ''
+      rationale: ''
+    decided_by: computational_chemist
+    rationale: Fast CPU filtering to reduce candidate set for expensive GPU scoring.
+  data_inputs: []
+  data_outputs: []
+  interface:
+    protocol: A2A
+    inputs: []
+    outputs: []
+  error_handling:
+    max_retries: 2
+    backoff: exponential
+    retryable_errors: []
+    fallback_action: notify_manager
+    decided_by: ''
+  env_vars: {}
+  testing:
+    unit_tests: []
+- api_version: meta-agent.biotech/v1alpha1
+  kind: AgentBlueprint
+  name: result_processor_agent
+  version: 1.0.0
+  description: Stream process Smina SDF. Filter for score < -7.0 AND distance to Cys12 < 4.0A. Select
+    top 1000.
+  status: new
+  agent_config:
+    temperature: 0.2
+    max_output_tokens: 4096
+    system_instruction: ''
+    decided_by: gcp_architect
+    rationale: ''
+  skill_references: []
+  reference_implementations: []
+  runtime:
+    type: cloud_run_job
+    execution_pattern: SYNC
+    compute:
+      cpu: '2'
+      memory: 4Gi
+      timeout_seconds: 1800
+      max_retries: 2
+      spot_vm: false
+    scaling:
+      min_instances: 0
+      max_instances: 10
+      concurrency: 1
+    network:
+      egress_policy: deny-all
+      decided_by: ''
+      rationale: ''
+    decided_by: gcp_architect
+    rationale: Lightweight logic to filter results between heavy compute steps.
+  data_inputs: []
+  data_outputs: []
+  interface:
+    protocol: A2A
+    inputs: []
+    outputs: []
+  error_handling:
+    max_retries: 2
+    backoff: exponential
+    retryable_errors: []
+    fallback_action: notify_manager
+    decided_by: ''
+  env_vars: {}
+  testing:
+    unit_tests: []
+- api_version: meta-agent.biotech/v1alpha1
+  kind: AgentBlueprint
+  name: gnina_agent
+  version: 1.0.0
+  description: Rescores top 1000 compounds using GNINA CNN scoring.
+  status: new
+  agent_config:
+    temperature: 0.2
+    max_output_tokens: 4096
+    system_instruction: ''
+    decided_by: computational_chemist
+    rationale: ''
+  skill_references: []
+  reference_implementations: []
+  runtime:
+    type: cloud_batch
+    execution_pattern: ASYNC_BATCH
+    compute:
+      cpu: '4'
+      memory: 16Gi
+      gpu_type: nvidia-l4
+      gpu_count: 1
+      timeout_seconds: 1800
+      max_retries: 2
+      spot_vm: true
+    scaling:
+      min_instances: 0
+      max_instances: 10
+      concurrency: 1
+    network:
+      egress_policy: deny-all
+      decided_by: ''
+      rationale: ''
+    decided_by: computational_chemist
+    rationale: High-accuracy scoring for top candidates. Requires GPU.
+  data_inputs: []
+  data_outputs: []
+  interface:
+    protocol: A2A
+    inputs: []
+    outputs: []
+  error_handling:
+    max_retries: 2
+    backoff: exponential
+    retryable_errors: []
+    fallback_action: notify_manager
+    decided_by: ''
+  env_vars: {}
+  testing:
+    unit_tests: []
+- api_version: meta-agent.biotech/v1alpha1
+  kind: AgentBlueprint
+  name: gromacs_agent
+  version: 1.0.0
+  description: Generates ligand topology (GAFF2/AM1-BCC via Acpype), merges with protein, and runs 10ns
+    MD. Wrapper checks for 'state.cpt' to resume.
+  status: new
+  agent_config:
+    temperature: 0.2
+    max_output_tokens: 4096
+    system_instruction: ''
+    decided_by: computational_chemist
+    rationale: ''
+  skill_references: []
+  reference_implementations: []
+  runtime:
+    type: cloud_batch
+    execution_pattern: ASYNC_BATCH
+    compute:
+      cpu: '4'
+      memory: 16Gi
+      gpu_type: nvidia-l4
+      gpu_count: 1
+      timeout_seconds: 1800
+      max_retries: 2
+      spot_vm: true
+    scaling:
+      min_instances: 0
+      max_instances: 10
+      concurrency: 1
+    network:
+      egress_policy: deny-all
+      decided_by: ''
+      rationale: ''
+    decided_by: computational_chemist
+    rationale: Validation of binding stability. Requires GPU.
+  data_inputs: []
+  data_outputs: []
+  interface:
+    protocol: A2A
+    inputs: []
+    outputs: []
+  error_handling:
+    max_retries: 2
+    backoff: exponential
+    retryable_errors: []
+    fallback_action: notify_manager
+    decided_by: ''
+  env_vars: {}
+  testing:
+    unit_tests: []
+workflow:
+  type: sequential_pipeline
+  steps:
+  - id: step_1_prep
+    agent: data_prep_agent
+    depends_on: []
+    inputs: {}
+    outputs_map: {}
+    continue_on: ''
+  - id: step_2_dock
+    agent: smina_docking_agent
+    depends_on:
+    - step_1_prep
+    inputs: {}
+    outputs_map: {}
+    continue_on: ''
+  - id: step_3_filter_smina
+    agent: result_processor_agent
+    depends_on:
+    - step_2_dock
+    inputs: {}
+    outputs_map: {}
+    continue_on: ''
+  - id: step_4_rescore
+    agent: gnina_agent
+    depends_on:
+    - step_3_filter_smina
+    inputs: {}
+    outputs_map: {}
+    continue_on: ''
+  - id: step_5_filter_gnina
+    agent: result_processor_agent
+    depends_on:
+    - step_4_rescore
+    inputs: {}
+    outputs_map: {}
+    continue_on: ''
+  - id: step_6_md
+    agent: gromacs_agent
+    depends_on:
+    - step_5_filter_gnina
+    inputs: {}
+    outputs_map: {}
+    continue_on: ''
+  error_strategy: fail_fast
+  orchestration: cloud_workflows
+infrastructure:
+  project_id: meta-agent-biotech
+  region: us-central1
+  resources: []
+budget:
+  estimated_monthly_usd: 200.4
+  breakdown:
+    compute: 0.0
+    storage: 0.0
+    ai_api: 0.0
+    networking: 0.0
+  decided_by: ''
+  rationale: ''
+compliance:
+  data_classification: non-sensitive
+  regulations: []
+  controls:
+  - iam_least_privilege
+  - vpc_service_controls
+  - cmek_encryption (projects/meta-agent-biotech/locations/us-central1/keyRings/screening-ring/cryptoKeys/research-key)
+  - audit_logging (DATA_ACCESS)
+  - container_digest_pinning
+  decided_by: ''
+  rationale: ''
+acceptance_criteria: []
+patch_history:
+- version: 6
+  timestamp: '2026-02-17T10:44:21.127881Z'
+  path: budget.estimated_monthly_usd
+  old_value: 0.0
+  new_value: 200.4
+  reason: Calculated spot usage for funnel approach.
+  author: budget_controller
+- version: 7
+  timestamp: '2026-02-17T10:44:21.128416Z'
+  path: compliance.controls
+  old_value: []
+  new_value:
+  - iam_least_privilege
+  - vpc_service_controls
+  - cmek_encryption
+  - audit_logging
+  - container_digest_pinning
+  reason: Added mandatory security controls.
+  author: compliance_officer
+- version: 8
+  timestamp: '2026-02-17T10:45:38.672813Z'
+  path: agents[0].description
+  old_value: Fetches ChEMBL compounds, filters for drug-likeness, generates 3D conformers (RDKit), and
+    prepares receptor (PDBFixer).
+  new_value: 'Fetches ChEMBL compounds, filters for drug-likeness. Prepares receptor (PDB: 6OIM) RETAINING
+    GDP/Mg cofactors and removing co-crystallized ligand.'
+  reason: Must retain GDP/Mg cofactors for KRAS G12C structural integrity.
+  author: computational_chemist
+- version: 9
+  timestamp: '2026-02-17T10:45:38.673368Z'
+  path: agents[2].description
+  old_value: Parses Smina outputs, selects top 1000, prepares inputs for GNINA. Later selects top 20 for
+    MD.
+  new_value: Parses Smina outputs. Filters for score < -7.0 AND distance to Cys12 < 4.0A (Encounter Complex).
+    Selects top 1000.
+  reason: Added geometric filter for covalent warhead proximity.
+  author: computational_chemist
+- version: 10
+  timestamp: '2026-02-17T10:45:38.673771Z'
+  path: agents[4].description
+  old_value: Runs 10ns MD simulation on top 20 poses using GROMACS.
+  new_value: Runs 10ns MD simulation on top 20 poses using GROMACS with checkpointing (-cpi) enabled to
+    GCS.
+  reason: Added checkpointing to mitigate Spot VM preemption risk.
+  author: compliance_officer
+- version: 11
+  timestamp: '2026-02-17T10:45:38.674292Z'
+  path: compliance.controls
+  old_value:
+  - iam_least_privilege
+  - vpc_service_controls
+  - cmek_encryption
+  - audit_logging
+  - container_digest_pinning
+  new_value:
+  - iam_least_privilege
+  - vpc_service_controls
+  - cmek_encryption (projects/meta-agent-biotech/locations/us-central1/keyRings/screening-ring/cryptoKeys/research-key)
+  - audit_logging (DATA_ACCESS)
+  - container_digest_pinning
+  reason: Finalized security controls.
+  author: compliance_officer
+- version: 12
+  timestamp: '2026-02-17T10:45:38.674756Z'
+  path: infrastructure.container_images
+  new_value:
+  - name: gnina
+    uri: ghcr.io/gnina/gnina:latest
+    digest: sha256:7e20606558666875704876615866687570487661586668757048766158666875
+  - name: gromacs
+    uri: nvcr.io/hpc/gromacs:2023.2
+    digest: sha256:4a92606558666875704876615866687570487661586668757048766158666875
+  reason: Pinned SHA256 digests for reproducibility.
+  author: compliance_officer
+- version: 13
+  timestamp: '2026-02-17T10:46:49.303946Z'
+  path: infrastructure.resources[1]
+  new_value:
+    description: Private mirror for Docker Hub images.
+    type: artifact_registry
+    location: us-central1
+    format: docker
+    name: biotech-images
+  reason: Added Artifact Registry for VPC-SC compliance (no external Docker Hub access).
+  author: gcp_architect
+- version: 14
+  timestamp: '2026-02-17T10:46:49.304414Z'
+  path: agents[0].runtime.container_image
+  new_value: us-central1-docker.pkg.dev/meta-agent-biotech/biotech-images/rdkit:2023.09.5
+  reason: Updated to Artifact Registry mirror path.
+  author: gcp_architect
+- version: 15
+  timestamp: '2026-02-17T10:46:49.304732Z'
+  path: agents[1].runtime.container_image
+  new_value: us-central1-docker.pkg.dev/meta-agent-biotech/biotech-images/gnina:latest
+  reason: Updated to Artifact Registry mirror path.
+  author: gcp_architect
+- version: 16
+  timestamp: '2026-02-17T10:46:49.305180Z'
+  path: agents[2].runtime.container_image
+  new_value: us-central1-docker.pkg.dev/meta-agent-biotech/biotech-images/rdkit:2023.09.5
+  reason: Updated to Artifact Registry mirror path.
+  author: gcp_architect
+- version: 17
+  timestamp: '2026-02-17T10:46:49.305474Z'
+  path: agents[3].runtime.container_image
+  new_value: us-central1-docker.pkg.dev/meta-agent-biotech/biotech-images/gnina:latest
+  reason: Updated to Artifact Registry mirror path.
+  author: gcp_architect
+- version: 18
+  timestamp: '2026-02-17T10:46:49.305746Z'
+  path: agents[4].runtime.container_image
+  new_value: us-central1-docker.pkg.dev/meta-agent-biotech/biotech-images/gromacs:2023.2
+  reason: Updated to Artifact Registry mirror path.
+  author: gcp_architect
+- version: 19
+  timestamp: '2026-02-17T10:46:49.306043Z'
+  path: agents[2].description
+  old_value: Parses Smina outputs. Filters for score < -7.0 AND distance to Cys12 < 4.0A (Encounter Complex).
+    Selects top 1000.
+  new_value: Stream process Smina SDF. Filter for score < -7.0 AND distance to Cys12 < 4.0A. Select top
+    1000.
+  reason: Mandated stream processing to fit in 4GB memory.
+  author: gcp_architect
+- version: 20
+  timestamp: '2026-02-17T10:46:49.306301Z'
+  path: agents[4].description
+  old_value: Runs 10ns MD simulation on top 20 poses using GROMACS with checkpointing (-cpi) enabled to
+    GCS.
+  new_value: Runs 10ns MD. Wrapper checks for 'state.cpt' to resume (-cpi) if preempted.
+  reason: Added explicit wrapper logic for checkpoint resumption.
+  author: gcp_architect
+- version: 21
+  timestamp: '2026-02-17T10:47:53.044261Z'
+  path: agents[4].description
+  old_value: Runs 10ns MD. Wrapper checks for 'state.cpt' to resume (-cpi) if preempted.
+  new_value: Generates ligand topology (GAFF2/AM1-BCC via Acpype), merges with protein, and runs 10ns
+    MD. Wrapper checks for 'state.cpt' to resume.
+  reason: Added mandatory ligand parameterization step (Acpype) before MD.
+  author: computational_chemist
+- version: 22
+  timestamp: '2026-02-17T10:48:17.806202Z'
+  path: metadata.name
+  old_value: ''
+  new_value: kras-g12c-screening-pipeline
+  reason: Setting final pipeline name for validation.
+  author: manager
+- version: 23
+  timestamp: '2026-02-17T10:48:17.806547Z'
+  path: metadata.description
+  old_value: Design a virtual screening pipeline that docks 50K compounds from a ChEMBL subset against
+    KRAS G12C, rescores with GNINA, runs 10ns MD on top 20 poses using GROMACS on Cloud Batch with L4
+    GPUs
+  new_value: Virtual screening pipeline for KRAS G12C inhibitors. Docks 50K compounds (Smina), filters
+    for Cys12 proximity, rescores (GNINA), and validates via MD (GROMACS) on Cloud Batch.
+  reason: Setting final description.
+  author: manager

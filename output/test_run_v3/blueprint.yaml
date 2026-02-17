@@ -1,0 +1,606 @@
+api_version: meta-agent.biotech/v1alpha1
+kind: SystemBlueprint
+metadata:
+  name: kras-g12c-screening-pipeline
+  version: 1.0.0
+  description: Virtual screening pipeline for KRAS G12C covalent inhibitors using Two-Stage Docking (Vina
+    -> GNINA) and MD validation on Google Cloud Batch.
+  session_id: ''
+  created_by: recruitment_board
+  created_at: '2026-02-17T13:34:07.581038Z'
+  tags: []
+agents:
+- api_version: meta-agent.biotech/v1alpha1
+  kind: AgentBlueprint
+  name: CheminformaticsSpecialist
+  version: 1.0.0
+  description: Filters ChEMBL for covalent warheads (acrylamide, etc.) and calculates ADMET properties.
+  status: new
+  agent_config:
+    model: gemini-3-flash-preview
+    temperature: 0.2
+    max_output_tokens: 4096
+    system_instruction: ''
+    decided_by: manager
+    rationale: ''
+  skill_references: []
+  reference_implementations: []
+  runtime:
+    type: cloud_run_job
+    execution_pattern: SYNC
+    compute:
+      cpu: '1'
+      memory: 2Gi
+      timeout_seconds: 1800
+      max_retries: 2
+      spot_vm: false
+    scaling:
+      min_instances: 0
+      max_instances: 10
+      concurrency: 1
+    network:
+      egress_policy: deny-all
+      decided_by: ''
+      rationale: ''
+    decided_by: manager
+    rationale: Proposed by Chemist for data curation.
+  data_inputs: []
+  data_outputs: []
+  interface:
+    protocol: A2A
+    inputs: []
+    outputs: []
+  error_handling:
+    max_retries: 2
+    backoff: exponential
+    retryable_errors: []
+    fallback_action: notify_manager
+    decided_by: ''
+  env_vars: {}
+  testing:
+    unit_tests: []
+- api_version: meta-agent.biotech/v1alpha1
+  kind: AgentBlueprint
+  name: StructuralBiologist
+  version: 1.0.0
+  description: Prepares the 6OIM receptor, retaining GDP/Mg and defining the docking grid around Cys12.
+  status: new
+  agent_config:
+    model: gemini-3-flash-preview
+    temperature: 0.2
+    max_output_tokens: 4096
+    system_instruction: ''
+    decided_by: manager
+    rationale: ''
+  skill_references: []
+  reference_implementations: []
+  runtime:
+    type: cloud_run_job
+    execution_pattern: SYNC
+    compute:
+      cpu: '1'
+      memory: 2Gi
+      timeout_seconds: 1800
+      max_retries: 2
+      spot_vm: false
+    scaling:
+      min_instances: 0
+      max_instances: 10
+      concurrency: 1
+    network:
+      egress_policy: deny-all
+      decided_by: ''
+      rationale: ''
+    decided_by: manager
+    rationale: Proposed by Chemist for receptor prep.
+  data_inputs: []
+  data_outputs: []
+  interface:
+    protocol: A2A
+    inputs: []
+    outputs: []
+  error_handling:
+    max_retries: 2
+    backoff: exponential
+    retryable_errors: []
+    fallback_action: notify_manager
+    decided_by: ''
+  env_vars: {}
+  testing:
+    unit_tests: []
+- api_version: meta-agent.biotech/v1alpha1
+  kind: AgentBlueprint
+  name: DockingSpecialist
+  version: 1.0.0
+  description: Performs high-accuracy CNN rescoring (GNINA) on top 2000 hits from ScreeningSpecialist.
+  status: new
+  agent_config:
+    model: gemini-3-flash-preview
+    temperature: 0.2
+    max_output_tokens: 4096
+    system_instruction: ''
+    decided_by: manager
+    rationale: ''
+  skill_references: []
+  reference_implementations: []
+  runtime:
+    type: cloud_batch
+    execution_pattern: ASYNC_BATCH
+    compute:
+      cpu: '4'
+      memory: 16Gi
+      gpu_type: nvidia-tesla-t4
+      gpu_count: 1
+      timeout_seconds: 1800
+      max_retries: 2
+      spot_vm: true
+    scaling:
+      min_instances: 0
+      max_instances: 10
+      concurrency: 1
+    network:
+      egress_policy: deny-all
+      decided_by: ''
+      rationale: ''
+    decided_by: manager
+    rationale: Proposed by Chemist/Architect for heavy compute. Uses T4 to save cost.
+  data_inputs: []
+  data_outputs: []
+  interface:
+    protocol: A2A
+    inputs: []
+    outputs: []
+  error_handling:
+    max_retries: 2
+    backoff: exponential
+    retryable_errors: []
+    fallback_action: notify_manager
+    decided_by: ''
+  env_vars: {}
+  testing:
+    unit_tests: []
+- api_version: meta-agent.biotech/v1alpha1
+  kind: AgentBlueprint
+  name: DynamicsEngineer
+  version: 1.0.0
+  description: Runs short 1ns MD simulations (GROMACS) on top 10 hits to assess pre-reactive complex stability.
+  status: new
+  agent_config:
+    model: gemini-3-flash-preview
+    temperature: 0.2
+    max_output_tokens: 4096
+    system_instruction: ''
+    decided_by: manager
+    rationale: ''
+  skill_references: []
+  reference_implementations: []
+  runtime:
+    type: cloud_batch
+    execution_pattern: ASYNC_BATCH
+    compute:
+      cpu: '8'
+      memory: 32Gi
+      gpu_type: nvidia-tesla-t4
+      gpu_count: 1
+      timeout_seconds: 1800
+      max_retries: 2
+      spot_vm: true
+    scaling:
+      min_instances: 0
+      max_instances: 10
+      concurrency: 1
+    network:
+      egress_policy: deny-all
+      decided_by: ''
+      rationale: ''
+    decided_by: manager
+    rationale: Proposed by Chemist. Switched to T4 to satisfy Budget Controller.
+  data_inputs: []
+  data_outputs: []
+  interface:
+    protocol: A2A
+    inputs: []
+    outputs: []
+  error_handling:
+    max_retries: 2
+    backoff: exponential
+    retryable_errors: []
+    fallback_action: notify_manager
+    decided_by: ''
+  env_vars: {}
+  testing:
+    unit_tests: []
+- api_version: meta-agent.biotech/v1alpha1
+  kind: AgentBlueprint
+  name: ResultsArchivist
+  version: 1.0.0
+  description: Loads final results from GCS to BigQuery for analysis.
+  status: new
+  agent_config:
+    model: gemini-3-flash-preview
+    temperature: 0.2
+    max_output_tokens: 4096
+    system_instruction: ''
+    decided_by: manager
+    rationale: ''
+  skill_references: []
+  reference_implementations: []
+  runtime:
+    type: cloud_run_job
+    execution_pattern: SYNC
+    compute:
+      cpu: '1'
+      memory: 2Gi
+      timeout_seconds: 1800
+      max_retries: 2
+      spot_vm: false
+    scaling:
+      min_instances: 0
+      max_instances: 10
+      concurrency: 1
+    network:
+      egress_policy: deny-all
+      decided_by: ''
+      rationale: ''
+    decided_by: manager
+    rationale: Infrastructure requirement for data persistence.
+  data_inputs: []
+  data_outputs: []
+  interface:
+    protocol: A2A
+    inputs: []
+    outputs: []
+  error_handling:
+    max_retries: 2
+    backoff: exponential
+    retryable_errors: []
+    fallback_action: notify_manager
+    decided_by: ''
+  env_vars: {}
+  testing:
+    unit_tests: []
+- api_version: meta-agent.biotech/v1alpha1
+  kind: AgentBlueprint
+  name: ScreeningSpecialist
+  version: 1.0.0
+  description: 'ScreeningSpecialist: Vina docking with distance constraint (<4A to Cys12 SG).'
+  status: new
+  agent_config:
+    model: gemini-3-flash-preview
+    temperature: 0.2
+    max_output_tokens: 4096
+    system_instruction: ''
+    decided_by: manager
+    rationale: ''
+  skill_references: []
+  reference_implementations: []
+  runtime:
+    type: cloud_batch
+    execution_pattern: ASYNC_BATCH
+    compute:
+      cpu: '4'
+      memory: 8Gi
+      timeout_seconds: 1800
+      max_retries: 2
+      spot_vm: true
+    scaling:
+      min_instances: 0
+      max_instances: 10
+      concurrency: 1
+    network:
+      egress_policy: deny-all
+      decided_by: ''
+      rationale: ''
+    decided_by: manager
+    rationale: Added to implement Two-Stage docking for cost savings (Vina first).
+  data_inputs: []
+  data_outputs: []
+  interface:
+    protocol: A2A
+    inputs: []
+    outputs: []
+  error_handling:
+    max_retries: 2
+    backoff: exponential
+    retryable_errors: []
+    fallback_action: notify_manager
+    decided_by: ''
+  env_vars: {}
+  testing:
+    unit_tests: []
+workflow:
+  type: sequential_pipeline
+  steps:
+  - id: step_1_filter
+    agent: CheminformaticsSpecialist
+    depends_on: []
+    inputs: {}
+    outputs_map: {}
+    continue_on: ''
+  - id: step_2_prep
+    agent: StructuralBiologist
+    depends_on:
+    - step_1_filter
+    inputs: {}
+    outputs_map: {}
+    continue_on: ''
+  - id: step_3_docking
+    agent: DockingSpecialist
+    depends_on: step_2b_vina
+    inputs: {}
+    outputs_map: {}
+    continue_on: ''
+  - id: step_4_md
+    agent: DynamicsEngineer
+    depends_on:
+    - step_3_docking
+    inputs: {}
+    outputs_map: {}
+    continue_on: ''
+  - id: step_5_archive
+    agent: ResultsArchivist
+    depends_on:
+    - step_4_md
+    inputs: {}
+    outputs_map: {}
+    continue_on: ''
+  - id: step_2b_vina
+    agent: ScreeningSpecialist
+    depends_on:
+    - step_2_prep
+    inputs: {}
+    outputs_map: {}
+    continue_on: ''
+  error_strategy: fail_fast
+  orchestration: cloud_workflows
+infrastructure:
+  project_id: meta-agent-biotech
+  region: us-central1
+  resources: []
+budget:
+  estimated_monthly_usd: 125.0
+  breakdown:
+    networking: 1
+    storage: 12
+    compute: 110
+    ai_api: 2
+  decided_by: ''
+  rationale: ''
+compliance:
+  data_classification: research-internal
+  regulations: []
+  controls:
+  - IAM_Least_Privilege
+  - VPC_Service_Controls
+  - CMEK_Encryption
+  - Cloud_Audit_Logs
+  decided_by: ''
+  rationale: ''
+acceptance_criteria: []
+patch_history:
+- version: 6
+  timestamp: '2026-02-17T13:35:29.690325Z'
+  path: budget.estimated_monthly_usd
+  old_value: 0.0
+  new_value: 220.0
+  reason: Budget Controller estimate for T4-based pipeline.
+  author: manager
+- version: 7
+  timestamp: '2026-02-17T13:35:29.690695Z'
+  path: compliance.data_classification
+  old_value: non-sensitive
+  new_value: research-internal
+  reason: Compliance Officer requirement.
+  author: manager
+- version: 8
+  timestamp: '2026-02-17T13:35:29.691039Z'
+  path: infrastructure.region
+  old_value: us-central1
+  new_value: us-central1
+  reason: Constraint.
+  author: manager
+- version: 10
+  timestamp: '2026-02-17T13:36:35.244557Z'
+  path: agents[2].description
+  old_value: Performs covalent-aware docking using GNINA and filters by warhead distance.
+  new_value: Performs high-accuracy CNN rescoring (GNINA) on top 2000 hits from ScreeningSpecialist.
+  reason: Refocused to second stage of docking (GNINA) on top 2000 hits only.
+  author: manager
+- version: 11
+  timestamp: '2026-02-17T13:36:35.244852Z'
+  path: agents[2].runtime.compute.gpu_count
+  old_value: 1
+  new_value: 1
+  reason: Reduced load allows keeping T4 but for fewer compounds.
+  author: manager
+- version: 12
+  timestamp: '2026-02-17T13:36:35.245206Z'
+  path: agents[0].agent_config.model
+  new_value: gemini-1.5-flash
+  reason: Budget optimization.
+  author: manager
+- version: 13
+  timestamp: '2026-02-17T13:36:35.245469Z'
+  path: agents[4].agent_config.model
+  new_value: gemini-1.5-flash
+  reason: Budget optimization.
+  author: manager
+- version: 14
+  timestamp: '2026-02-17T13:36:35.245939Z'
+  path: workflow.steps[2].depends_on
+  old_value:
+  - step_2_prep
+  new_value: step_2b_vina
+  reason: Re-routing workflow through Vina step.
+  author: manager
+- version: 15
+  timestamp: '2026-02-17T13:36:35.246217Z'
+  path: budget.estimated_monthly_usd
+  old_value: 220.0
+  new_value: 125.0
+  reason: Reduced due to Two-Stage Docking strategy.
+  author: manager
+- version: 16
+  timestamp: '2026-02-17T13:36:35.246470Z'
+  path: compliance.controls
+  old_value: []
+  new_value:
+  - IAM_Least_Privilege
+  - VPC_Service_Controls
+  - CMEK_Encryption
+  - Cloud_Audit_Logs
+  reason: Added mandatory controls.
+  author: manager
+- version: 17
+  timestamp: '2026-02-17T13:36:35.246722Z'
+  path: agents[3].description
+  old_value: Runs short MD simulations (GROMACS) on top hits to validate binding stability.
+  new_value: Runs short MD simulations (GROMACS) on top 10 hits to assess pre-reactive complex stability.
+  reason: Clarified scientific validity (Pre-reactive stability).
+  author: manager
+- version: 18
+  timestamp: '2026-02-17T13:38:23.206239Z'
+  path: agents[0].agent_config.model
+  old_value: gemini-1.5-flash
+  new_value: gemini-3-flash-preview
+  reason: 'Compliance: Upgrade to allowed model.'
+  author: manager
+- version: 19
+  timestamp: '2026-02-17T13:38:23.206575Z'
+  path: agents[1].agent_config.model
+  new_value: gemini-3-flash-preview
+  reason: 'Compliance: Upgrade to allowed model.'
+  author: manager
+- version: 20
+  timestamp: '2026-02-17T13:38:23.206823Z'
+  path: agents[2].agent_config.model
+  new_value: gemini-3-flash-preview
+  reason: 'Compliance: Upgrade to allowed model.'
+  author: manager
+- version: 21
+  timestamp: '2026-02-17T13:38:23.207154Z'
+  path: agents[3].agent_config.model
+  new_value: gemini-3-flash-preview
+  reason: 'Compliance: Upgrade to allowed model.'
+  author: manager
+- version: 22
+  timestamp: '2026-02-17T13:38:23.207423Z'
+  path: agents[4].agent_config.model
+  old_value: gemini-1.5-flash
+  new_value: gemini-3-flash-preview
+  reason: 'Compliance: Upgrade to allowed model.'
+  author: manager
+- version: 23
+  timestamp: '2026-02-17T13:38:23.207661Z'
+  path: agents[5].agent_config.model
+  new_value: gemini-3-flash-preview
+  reason: 'Compliance: Upgrade to allowed model.'
+  author: manager
+- version: 24
+  timestamp: '2026-02-17T13:38:23.207906Z'
+  path: agents[0].network_policy.egress
+  new_value: allow-internet
+  reason: Allow ChEMBL download.
+  author: manager
+- version: 25
+  timestamp: '2026-02-17T13:38:23.208248Z'
+  path: agents[1].network_policy.egress
+  new_value: allow-internet
+  reason: Allow PDB download.
+  author: manager
+- version: 26
+  timestamp: '2026-02-17T13:38:23.208530Z'
+  path: agents[3].timeout_seconds
+  new_value: 7200
+  reason: Increase for MD safety margin.
+  author: manager
+- version: 27
+  timestamp: '2026-02-17T13:38:23.208774Z'
+  path: agents[5].description
+  old_value: Performs high-throughput coarse docking using AutoDock Vina (CPU) on 50k compounds. Filters
+    top 2000.
+  new_value: 'ScreeningSpecialist: Vina docking with distance constraint (<4A to Cys12 SG).'
+  reason: Add scientific detail.
+  author: manager
+- version: 28
+  timestamp: '2026-02-17T13:38:23.209068Z'
+  path: budget.breakdown
+  old_value:
+    compute: 0.0
+    storage: 0.0
+    ai_api: 0.0
+    networking: 0.0
+  new_value:
+    networking: 1
+    storage: 12
+    compute: 110
+    ai_api: 2
+  reason: Itemize costs.
+  author: manager
+- version: 29
+  timestamp: '2026-02-17T13:39:11.550274Z'
+  path: agents[3].description
+  old_value: Runs short MD simulations (GROMACS) on top 10 hits to assess pre-reactive complex stability.
+  new_value: Runs short 1ns MD simulations (GROMACS) on top 10 hits to assess pre-reactive complex stability.
+  reason: 'Scientific/Budget adjustment: 1ns MD is sufficient for stability check and fits T4/2hr limit.'
+  author: manager
+- version: 30
+  timestamp: '2026-02-17T13:39:11.550868Z'
+  path: agents[0].runtime.compute.cpu
+  old_value: '2'
+  new_value: '1'
+  reason: Budget optimization.
+  author: manager
+- version: 31
+  timestamp: '2026-02-17T13:39:11.551364Z'
+  path: agents[0].runtime.compute.memory
+  old_value: 4Gi
+  new_value: 2Gi
+  reason: Budget optimization.
+  author: manager
+- version: 32
+  timestamp: '2026-02-17T13:39:11.551778Z'
+  path: agents[1].runtime.compute.cpu
+  old_value: '2'
+  new_value: '1'
+  reason: Budget optimization.
+  author: manager
+- version: 33
+  timestamp: '2026-02-17T13:39:11.552311Z'
+  path: agents[1].runtime.compute.memory
+  old_value: 4Gi
+  new_value: 2Gi
+  reason: Budget optimization.
+  author: manager
+- version: 34
+  timestamp: '2026-02-17T13:39:11.552763Z'
+  path: agents[4].runtime.compute.cpu
+  old_value: '2'
+  new_value: '1'
+  reason: Budget optimization.
+  author: manager
+- version: 35
+  timestamp: '2026-02-17T13:39:11.553232Z'
+  path: agents[4].runtime.compute.memory
+  old_value: 4Gi
+  new_value: 2Gi
+  reason: Budget optimization.
+  author: manager
+- version: 36
+  timestamp: '2026-02-17T13:39:18.773350Z'
+  path: metadata.name
+  old_value: ''
+  new_value: kras-g12c-screening-pipeline
+  reason: Required field.
+  author: manager
+- version: 37
+  timestamp: '2026-02-17T13:39:18.773661Z'
+  path: metadata.description
+  old_value: Design a virtual screening pipeline for identifying novel KRAS G12C covalent inhibitors.
+    The pipeline should screen ~50,000 compounds from ChEMBL, dock them against PDB structure 6OIM, rescore
+    top hits with a ML-based scoring function, and validate the top 10 candidates with short molecular
+    dynamics simulations. Use Cloud Batch for GPU workloads and BigQuery for results storage.
+  new_value: Virtual screening pipeline for KRAS G12C covalent inhibitors using Two-Stage Docking (Vina
+    -> GNINA) and MD validation on Google Cloud Batch.
+  reason: Required field.
+  author: manager

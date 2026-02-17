@@ -1,0 +1,882 @@
+[PROPOSAL R2] compliance_officer (INSTRUCTION):
+As the Compliance Officer, I have reviewed the current blueprint for the KRAS G12C covalent screening pipeline. The current draft is **non-compliant** and poses a significant risk to the organization's Intellectual Property (IP).
+
+The blueprint currently classifies data as "non-sensitive," which is a critical error. While the protein target (KRAS G12C) is a known biological entity, the specific chemical library, the screening parameters, and the resulting "hits" constitute high-value proprietary IP that must be protected under a strict security framework to ensure future patentability and regulatory (GxP) traceability.
+
+### 1. Data Classification
+
+| Data Element | Classification | Rationale |
+| :--- | :--- | :--- |
+| **Chemical Library (100K Compounds)** | **Proprietary / Confidential** | Even if sourced from public catalogs, the specific subset and any custom scaffolds are trade secrets. |
+| **Protein Target (KRAS G12C)** | **Public / Internal Research** | Public if using PDB structures; Proprietary if using internal co-crystal structures. |
+| **Screening Results (Hits)** | **Highly Confidential / IP** | This is the core value of the project. Leakage compromises patent filings. |
+| **Audit Logs / Metadata** | **Internal Use** | Required for GxP/21 CFR Part 11 compliance to prove data integrity. |
+
+---
+
+### 2. Compliance Checklist
+
+| Requirement | Status | Notes |
+| :--- | :--- | :--- |
+| **Data Classification Defined** | **FAIL** | Current blueprint lists "non-sensitive," which is unacceptable for IP-heavy screening. |
+| **Audit Logging & Traceability** | **FAIL** | No mention of Cloud Logging or provenance tracking for screening results. |
+| **Encryption at Rest/Transit** | **FAIL** | Not specified in the current infrastructure resources. |
+| **License Verification** | **FAIL** | No verification step for the 100K compound library usage rights. |
+| **Data Residency** | **FAIL** | Region is set to `us-central1`, but residency requirements for global teams are not defined. |
+| **GxP Readiness** | **FAIL** | Lacks controls for data integrity and versioning required for future IND submissions. |
+
+---
+
+### 3. Required Security Controls
+
+To move this proposal toward approval, the following GCP-specific controls **must** be implemented:
+
+*   **Identity & Access Management (IAM):**
+    *   Implementation of **Least Privilege**. Only the Lead Computational Chemist and the automated Service Account should have `Storage Object Viewer/Creator` permissions on the results bucket.
+    *   Use of **Workload Identity** for the agents/orchestrator to avoid long-lived JSON keys.
+
+*   **VPC Service Controls (VPC-SC):**
+    *   **MANDATORY:** Define a Service Perimeter around the project. This prevents data exfiltration by ensuring that data in Cloud Storage cannot be copied to external, unauthorized GCP projects, even by an identity with valid credentials.
+
+*   **Encryption (CMEK):**
+    *   All storage buckets (input compounds, intermediate docking files, and final hits) must use **Customer-Managed Encryption Keys (CMEK)** via Cloud KMS. Default Google-managed keys are insufficient for high-value IP.
+
+*   **Audit & Traceability:**
+    *   Enable **Cloud Audit Logs** (Data Access logs) for all GCS buckets.
+    *   Implement **Data Catalog** tagging to track the lineage of the 100K compounds from ingestion to hit identification.
+
+---
+
+### 🚩 Compliance Flags & Remediation Required
+
+1.  **CRITICAL:** The blueprint lists `data_classification: non-sensitive`. I am flagging this for immediate correction to **Proprietary**.
+2.  **MISSING:** There is no mention of **21 CFR Part 11** compliance. While this is early-stage, the data integrity of the screening must be verifiable for future regulatory filings.
+3.  **MISSING:** No **Data Loss Prevention (DLP)** API integration is mentioned. I recommend a DLP scan on the output files to ensure no unintended metadata or PII (if any) is leaked in the hit reports.
+4.  **MISSING:** License verification for the 100K compounds. If these are from a commercial provider (e.g., Enamine, ChemDiv), we must document the "Right to Use" for virtual screening.
+
+**Verdict:** **REJECTED** until the blueprint is updated with the mandatory security controls and corrected data classification.
+
+[PROPOSAL R2] budget_controller (INSTRUCTION):
+As the Budget Controller, I have reviewed the proposal to screen 100,000 compounds. I am setting a **strict budget cap of $200.00** for this initial run. Any architecture that exceeds this by failing to utilize Spot instances or by using over-provisioned AI models will be rejected immediately.
+
+### **Budget Controller’s Assessment & Objections**
+
+1.  **OBJECTION - Compute Strategy:** I will **not** approve the use of On-Demand instances or GKE Autopilot for this batch workload. This is a classic fault-tolerant batch job. We must use **Cloud Batch with Spot VMs**. Using On-Demand would cost ~$120.00 for compute; Spot VMs bring this down to ~$35.00.
+2.  **OBJECTION - GPU Selection:** Do **not** request A100 or H100 GPUs. Molecular docking for 100K compounds is a high-throughput, low-complexity task per unit. If GPU acceleration is required (e.g., for AutoDock Vina-GPU), we will use **NVIDIA T4 Spot instances** ($0.11/hr). A100s are 33x more expensive and overkill for this.
+3.  **OBJECTION - AI Model:** For post-docking analysis or SMILES filtering, you are restricted to **Gemini 1.5 Flash**. Gemini 1.5 Pro is 10x the cost and provides zero marginal utility for parsing docking scores or basic chemical properties.
+
+---
+
+### **1. Cost Estimate: $165.00 (Total for 100K Compounds)**
+
+This estimate assumes a 3-minute average docking time per compound on a standard vCPU-optimized Spot instance, or a high-throughput GPU-accelerated run on T4s.
+
+| Category | Service | Configuration | Estimated Cost |
+| :--- | :--- | :--- | :--- |
+| **Compute** | Cloud Batch | Spot VMs (N2D-standard-2) | $145.00 |
+| **Storage** | GCS | Standard (Ingest) -> Coldline (Archive) | $5.00 |
+| **AI/ML API** | Vertex AI | Gemini 1.5 Flash (Filtering/Summary) | $15.00 |
+| **Total** | | | **$165.00** |
+
+---
+
+### **2. Monthly Cost Breakdown**
+
+| Component | Monthly Cost (USD) | Rationale |
+| :--- | :--- | :--- |
+| **Compute** | $145.00 | Based on ~5,000 vCPU hours at Spot rates ($0.029/hr per instance). |
+| **Storage** | $5.00 | 100K compounds + results (~50GB total). No premium tiers allowed. |
+| **AI/ML API** | $15.00 | ~150M tokens (Input/Output) using Gemini 1.5 Flash for hit prioritization. |
+| **Networking** | $0.00 | All traffic must remain within the `us-central1` region to avoid egress fees. |
+| **TOTAL** | **$165.00** | |
+
+---
+
+### **3. Cost Optimization Recommendations**
+
+*   **Recommendation 1 (MANDATORY):** Use **Cloud Batch with Spot VMs**. This provides a 60-91% discount compared to standard compute. Since docking is stateless, a Spot preemption only requires re-running a single compound, not the whole batch.
+*   **Recommendation 2:** Implement **GCS Lifecycle Management**. Move raw docking logs to **Archive Storage** immediately after the Gemini Flash agent extracts the top 1,000 hits. We are not paying for "Standard" storage for data we won't touch again.
+*   **Recommendation 3:** Use **SMILES string compression** for data transit. Do not pass full PDB files to the LLM; only pass the docking score and the ligand ID to Gemini 1.5 Flash to minimize token costs.
+
+**Budget Decision:** Approved only if the `infrastructure` block is updated to specify `provisioning_model: SPOT` and the `budget` cap is set to **$200.00**. Any deviation requires a formal appeal to the board.
+
+[PROPOSAL R2] gcp_architect (INSTRUCTION):
+Hello. I am the **GCP Cloud Architect**. I have reviewed the requirement to screen 100K compounds.
+
+Here is the most efficient, cost-effective architecture. We will avoid complex orchestrators like GKE or Airflow for this specific task; **Cloud Batch** is the correct managed service for finite, parallelizable HPC workloads.
+
+### 1. Proposed Architecture: Cloud Batch
+We will use **Google Cloud Batch** to orchestrate the screening. It allows us to submit a job definition, and GCP handles the queueing, provisioning, and scaling down to zero upon completion.
+
+*   **Compute Resource:**
+    *   **If Classical Docking (e.g., AutoDock Vina):** Use **N2 or C2 (Compute Optimized)** instances. Docking is CPU-bound. We do **not** need GPUs here.
+    *   **If ML/AI Docking (e.g., DiffDock):** Use **L4 or T4 GPUs**. Do **not** use A100s. A100s are for training; T4/L4 are optimized for inference and are significantly cheaper and more available.
+    *   **Provisioning Model:** Use **Spot VMs**. Screening is fault-tolerant. If a node is preempted, Cloud Batch automatically retries the task. This saves ~60-91% on cost.
+
+### 2. Parallelization Strategy (Sharding)
+Processing 100K compounds sequentially is too slow; spinning up 100K VMs is inefficient (API rate limits, startup overhead).
+
+*   **Strategy:** **Array Jobs (Task Indexing)**.
+*   **Implementation:**
+    1.  Split the 100K input SDF file into **100 shards** containing 1,000 compounds each.
+    2.  Submit a single Cloud Batch job with `task_count=100`.
+    3.  Each task reads the environment variable `BATCH_TASK_INDEX` (0-99).
+    4.  Task $N$ reads `input_shard_$N.sdf` and writes `output_shard_$N.sdf`.
+*   **Concurrency:** We can set `parallelism=50` to run 50 shards at once, balancing speed vs. quota limits.
+
+### 3. Data Storage & Flow
+Data locality is critical to avoid egress costs and latency.
+
+*   **Storage (GCS):**
+    *   Create a Regional Bucket in `us-central1` (same as compute).
+    *   Structure:
+        *   `gs://project-bucket/screening/kras-g12c/inputs/` (SDF shards)
+        *   `gs://project-bucket/screening/kras-g12c/outputs/` (Docked poses)
+        *   `gs://project-bucket/screening/kras-g12c/logs/` (StdOut/Err)
+*   **Analytics (BigQuery):**
+    *   The Batch job should output a summary CSV/JSON alongside the PDB/SDF files.
+    *   Load these summaries into **BigQuery** to sort by Binding Affinity (kcal/mol) and filter for the top 1% hits.
+
+---
+
+### Updated Blueprint Proposal
+
+I am updating the infrastructure section of the blueprint to reflect this architecture.
+
+```yaml
+api_version: meta-agent.biotech/v1alpha1
+kind: SystemBlueprint
+metadata:
+  name: kras-g12c-screening-arch
+  version: 1.0.1
+  description: High-throughput screening of 100K compounds using Cloud Batch
+  created_by: gcp_cloud_architect
+workflow:
+  type: sequential_pipeline
+  orchestration: cloud_workflows
+infrastructure:
+  project_id: 'biotech-screening-prod'
+  region: us-central1
+  resources:
+    - name: docking-batch-job
+      type: google.cloud.batch.v1.job
+      spec:
+        machine_type: n2-standard-4  # Efficient CPU balance
+        provisioning_model: SPOT
+        task_count: 100             # 100 shards of 1k compounds
+        parallelism: 50
+    - name: screening-data-bucket
+      type: google.storage.bucket
+      spec:
+        location: us-central1
+        class: STANDARD
+    - name: results-analytics
+      type: google.cloud.bigquery.dataset
+      spec:
+        location: us-central1
+budget:
+  estimated_monthly_usd: 150.00 # Estimate for ~500 CPU hours on Spot
+  breakdown:
+    compute: 140.0
+    storage: 5.0
+    networking: 5.0
+  rationale: 'Using Spot VMs and N2 instances avoids over-provisioning.'
+```
+
+**Question for the Chemist/Manager:**
+Does the docking software require GPU acceleration (ML-based), or is it CPU-based (Vina/Glide)? This determines if we switch the `machine_type` to include an L4 GPU.
+
+[PROPOSAL R2] computational_chemist (INSTRUCTION):
+As the Computational Chemist on the Recruitment Board, I have reviewed the request.
+
+**Scientific Rigor Warning:**
+Screening for *covalent* inhibitors is fundamentally different from non-covalent docking. Standard docking algorithms (rigid receptor, flexible ligand) will fail because they penalize the steric clash that occurs when a covalent bond forms, or they fail to enforce the specific geometric constraints required for the reaction (e.g., nucleophilic attack angle).
+
+If we simply run `DiffDock` or standard `AutoDock Vina` on 100K compounds without specific covalent handling, the results will be scientifically invalid.
+
+Here is my proposed pipeline, specifically engineered for KRAS G12C covalent screening.
+
+---
+
+### Proposed Pipeline Architecture
+
+#### Phase 1: Library Filtering & Warhead Detection (Cheminformatics Agent)
+**Tools:** `RDKit`
+**Input:** 100K SMILES.
+**Logic:**
+1.  **Warhead Filtering:** We are targeting Cysteine 12. The library *must* be filtered for electrophilic warheads (e.g., acrylamides, chloroacetamides, vinyl sulfones) capable of reacting with a thiol.
+    *   *Action:* Use SMARTS patterns in RDKit to identify and tag the reactive carbon atom.
+    *   *Rejection:* Discard compounds lacking a suitable Michael acceptor. (Expect ~90% reduction if the library is generic; if it's a covalent-focused library, proceed).
+2.  **ADMET Filters:** Apply Lipinski’s Rule of 5 and PAINS filters immediately to save compute.
+
+#### Phase 2: Target Preparation (Structural Biology Agent)
+**Tools:** `PDBFixer`, `OpenMM`, `MGLTools`
+**Logic:**
+1.  **Template Selection:** Use a KRAS G12C crystal structure in the GDP-bound state with the Switch-II pocket open (e.g., PDB: **6OIM** - Sotorasib bound).
+2.  **Preparation:** Strip waters, add hydrogens (pH 7.4).
+3.  **Covalent Setup:** This is the critical step. We must define Cys12 as a flexible residue or prepare the grid box centered specifically on the Sulfur atom of Cys12.
+
+#### Phase 3: Covalent Docking (Docking Agent)
+**Tools:** `AutoDock Vina` (specifically the covalent protocol) or `Smina`.
+**Why not DiffDock?** DiffDock is generative diffusion. It does not understand covalent bond formation geometry. It will hallucinate poses that look nice but are chemically impossible for a reaction.
+**Logic:**
+1.  **Method:** Use a "flexible side-chain" approach. Treat Cys12 as flexible in Vina.
+2.  **Constraint:** Filter poses where the distance between the ligand's reactive carbon (tagged in Phase 1) and the Cys12 Sulfur is > 3.5 Å.
+3.  **Compute:** High-throughput CPU (Google Cloud Batch).
+
+#### Phase 4: Physics-Based Refinement (MD Agent)
+**Tools:** `GROMACS` or `OpenMM`
+**Input:** Top 100-500 hits from Phase 3.
+**Logic:**
+1.  **Topology Generation:** Generate parameters for the covalently bound ligand-protein complex (requires force field modification, e.g., GAFF2 + Amber).
+2.  **Short MD:** Run 10ns MD simulations to check the stability of the complex. If the ligand flies out or distorts the pocket significantly, it is a false positive.
+3.  **Compute:** GPU acceleration (NVIDIA L4 or T4).
+
+---
+
+### Answers to Manager's Questions
+
+**1. Which covalent docking software do you recommend?**
+I recommend **AutoDock Vina** utilizing a **flexible side-chain protocol**, or **Smina** (a fork of Vina with better custom scoring support).
+*   *Why:* It is open-source, containerizable, and allows us to define the Cys12 side chain as flexible, allowing the ligand to find the reactive geometry.
+*   *Commercial Alternative:* If budget permits, *Schrödinger CovDock* is the industry standard, but for this open-source agent blueprint, Vina/Smina is the correct choice.
+*   *Strict Prohibition:* Do not use standard rigid-receptor docking.
+
+**2. What steps are needed for ligand preparation?**
+*   **3D Conformer Generation:** Use `RDKit` (ETKDGv3) to generate low-energy conformers.
+*   **Warhead Tagging:** You must identify the specific atom that reacts. The agent needs to know *which* carbon is the electrophile.
+*   **Stereochemistry:** Enumerate undefined chiral centers.
+*   **Protonation:** Generate states at pH 7.4 (using `Open Babel` or `Dimorphite-DL`).
+
+**3. How should we handle the KRAS G12C target structure?**
+*   **PDB Selection:** Use **6OIM** (co-crystal with Sotorasib). It has the cryptic pocket formed. Docking into an Apo structure (like 4OBE) will fail because the pocket is closed.
+*   **Residue Handling:** Cys12 must be treated as a reactive nucleophile. In the docking grid generation, the box must be centered on residue 12.
+
+**4. What post-docking analysis is required?**
+*   **Geometric Filtering:** Discard any pose where the distance between the reactive carbon and Cys12 Sulfur is > 4.0 Å. The reaction cannot happen if they aren't close.
+*   **Pose Inspection:** Check for steric clashes with the Switch-II region.
+*   **dG Binding:** Vina score is useful, but secondary to the geometric feasibility of the covalent bond.
+
+---
+
+### Proposed Agent Skills & GCP Resources
+
+To execute this, we need to add the following to the blueprint:
+
+**Agent 1: Cheminformatics Specialist**
+*   **Skills:** `smarts_pattern_matching`, `rdkit_conformer_generation`, `admet_filtering`
+*   **Compute:** Cloud Run (CPU optimized).
+
+**Agent 2: Docking Specialist**
+*   **Skills:** `autodock_vina_execution`, `pdbqt_preparation`, `geometric_distance_calculation`
+*   **Compute:** Google Cloud Batch (C2 instances, high CPU).
+
+**Agent 3: Molecular Dynamics Specialist**
+*   **Skills:** `gromacs_setup`, `trajectory_analysis`, `rmsd_calculation`
+*   **Compute:** GKE with NVIDIA T4/L4 GPUs.
+
+**Scientific Validation Step:**
+I require a "sanity check" step in the workflow where the system outputs the top 5 poses for manual visualization (or generates PyMOL snapshots) to ensure the warhead is actually pointing at the Cysteine.
+
+Does this plan meet the board's approval for scientific validity?
+
+[CRITIQUE R3] compliance_officer (CHALLENGE):
+As the Compliance Officer, I have reviewed the Phase Summaries and the current System Blueprint. While the inclusion of CMEK and the "Proprietary" classification are positive steps, the proposal currently fails several critical regulatory and security requirements necessary for protecting Life Sciences Intellectual Property (IP).
+
+### 1. Data Classification
+| Data Element | Classification | Sensitivity |
+| :--- | :--- | :--- |
+| **100K Compound Library** | **Proprietary / IP** | High (Trade Secret) |
+| **KRAS G12C Structural Data** | **Proprietary / Research** | High |
+| **Docking Scores & Hit Lists** | **Proprietary / IP** | High |
+| **Audit Logs / Metadata** | **Internal** | Medium |
+| **PHI/PII** | **N/A** | None identified in this workflow |
+
+---
+
+### 2. Compliance Checklist
+| Requirement | Status | Notes |
+| :--- | :--- | :--- |
+| **Data Classification Explicitly Defined** | **PASS** | Set to "Proprietary". |
+| **Audit Logging for Regulatory Workflows** | **FAIL** | No configuration for Cloud Audit Logs (Data Access logs) for Cloud Batch or Cloud Run. |
+| **License Verification for Datasets** | **FAIL** | Source of 100K compounds is "assumed generic." Must verify Open Source or Commercial license. |
+| **Data Residency Specified** | **PASS** | Locked to `us-central1`. |
+| **Encryption at Rest (CMEK)** | **PASS** | Enabled in metadata. |
+| **Encryption in Transit** | **PASS** | Default GCP TLS; however, VPC-SC is missing to enforce the perimeter. |
+| **GxP Traceability** | **FAIL** | Missing versioning for the compound library and docking parameters in the analysis phase. |
+
+---
+
+### 3. Required Security Controls
+
+#### **IAM (Identity & Access Management)**
+*   **Least Privilege:** Each agent (`cheminformatics_agent`, `docking_agent`, `analysis_agent`) must have a **unique Service Account**.
+*   **Docking Agent Permissions:** Must only have `roles/storage.objectViewer` on the input bucket and `roles/storage.objectCreator` on the output bucket. It should **not** have project-wide editor roles.
+
+#### **VPC Service Controls (VPC-SC)**
+*   **CRITICAL MISSING CONTROL:** Because the data is "Proprietary," a **Service Perimeter** is mandatory. This prevents data exfiltration by ensuring that even if an agent is compromised, data cannot be copied to a bucket outside the organization.
+*   **Requirement:** Include Cloud Batch, Cloud Run, and GCS within a single VPC-SC perimeter.
+
+#### **Encryption & Spot VM Security**
+*   **CMEK:** Ensure the CMEK key is used not just for GCS, but also for the **Persistent Disks (PD)** attached to the Cloud Batch Spot VMs.
+*   **Ephemeral Data:** Since Spot VMs can be preempted, the `docking_agent` must ensure that any local scratch space is encrypted and wiped upon preemption.
+
+#### **Audit Logging**
+*   **Requirement:** Enable **Cloud Audit Logs (Data Access)** for the GCS buckets holding the compounds and results. This is required for GxP traceability to prove who accessed the "Proprietary" hits and when.
+
+---
+
+### 🚩 Compliance Flags & Mandatory Fixes
+1.  **FLAG: License Verification:** You cannot proceed with "assumed generic" compounds. If the library is from a source like Enamine or ZINC, the license terms must be documented to ensure the resulting "hits" are not legally encumbered.
+2.  **FLAG: Missing VPC-SC:** The `egress_policy: deny-all` in the blueprint is a local agent config, not a platform-level enforcement. You must specify a **VPC-SC Service Perimeter**.
+3.  **FLAG: Traceability:** The `analysis_agent` must log the specific version/hash of the `AutoDock Vina` container and the input library to meet GxP "reproducibility" standards.
+
+**Decision:** **PROVISIONAL REJECTION.** The blueprint requires the addition of VPC-SC and explicit Cloud Audit Log configurations before moving to the execution phase.
+
+[CRITIQUE R3] budget_controller (CHALLENGE):
+I **OBJECT** to the current blueprint. While the `docking_agent` correctly utilizes Spot VMs, the `cheminformatics_agent` and `analysis_agent` are configured with `spot_vm: false`. 
+
+These are batch-processing tasks (filtering 100K compounds and aggregating results) that are inherently fault-tolerant. By not using Spot instances for Cloud Run Jobs, you are paying a **~300% premium** for no reason. Furthermore, a $200 budget cap is too loose for a $40 job; we need to tighten the leash to prevent "cloud sprawl."
+
+### 1. Cost Estimate (Per 100K Compound Run)
+The total estimated cost for this run is **$38.10 USD**.
+
+*   **Cheminformatics (Cloud Run):** ~$6.00 (Standard pricing) -> *Could be ~$1.80 with Spot.*
+*   **Docking (Cloud Batch):** ~$31.50 (Spot E2-standard-4).
+*   **Analysis (Cloud Run):** ~$0.50.
+*   **Storage & API:** ~$0.10.
+
+### 2. Cost Optimization Recommendations
+*   **MANDATORY: Enable Spot for all Cloud Run Jobs.** Change `spot_vm: true` for `cheminformatics_agent` and `analysis_agent`. This reduces their specific compute costs by approximately 60-70%.
+*   **REDUCE Budget Cap:** Lower the `estimated_monthly_usd` from $200 to **$100**. This provides a 2.5x buffer over the estimated cost while preventing catastrophic overruns if a loop occurs in the workflow.
+*   **USE Gemini 1.5 Flash:** Ensure the agents are explicitly using `gemini-1.5-flash`. If these agents are currently defaulting to `gemini-1.5-pro` for simple RDKit/Vina orchestration, you are overpaying by 10x for tokens.
+
+### 3. Monthly Cost Breakdown
+
+| Category | Service | Estimated Cost (USD) |
+| :--- | :--- | :--- |
+| **Compute** | Cloud Batch (Spot) + Cloud Run (Spot) | $37.50 |
+| **Storage** | GCS (Standard Tier - 10GB) | $0.50 |
+| **AI/ML API** | Gemini 1.5 Flash (Orchestration) | $0.10 |
+| **Networking** | Egress (Internal GCP) | $0.00 |
+| **TOTAL** | | **$38.10** |
+
+**Status:** **REJECTED** until `spot_vm: true` is applied to all agents and the budget cap is lowered to $100. I will not approve paying "on-demand" prices for non-urgent batch filtering.
+
+[SYNTHESIS R4] gcp_architect (INSTRUCTION):
+[PROPOSAL R3] gcp_architect (SOLUTION):
+I have reviewed the final constraints and the feedback from the Compliance Officer and Budget Controller.
+
+**Technical Correction Required:**
+The Budget Controller requested `spot_vm: true` for **Cloud Run Jobs**.
+*Clarification:* **Cloud Run does not offer Spot instances.** It is a serverless pay-per-use model. To strictly meet the "Spot Pricing" requirement and the $100 budget cap, I am migrating the `cheminformatics_agent` (Filtering) and `analysis_agent` (Aggregation) to **Cloud Batch** as well.
+
+**Architecture Decision:**
+We will unify the compute stack on **Google Cloud Batch**.
+1.  **Unified Compute:** All three steps (Filter, Dock, Analyze) will run as Cloud Batch jobs. This allows us to use **Spot VMs** for every step, maximizing cost savings (~60-91%).
+2.  **Security Perimeter:** Consolidating on Cloud Batch simplifies the **VPC Service Controls (VPC-SC)** configuration, as we only need to secure the Batch API and GCS, rather than bridging Cloud Run and Batch.
+3.  **MD Deferral:** To respect the strict $100 budget, I have **excluded** the GPU-accelerated Molecular Dynamics (MD) refinement step requested by the Chemist. This blueprint focuses solely on the high-throughput Vina screening. MD should be a separate, higher-budget follow-up for the top 100 hits.
+
+Here is the final, deployable System Blueprint.
+
+```yaml
+api_version: meta-agent.biotech/v1alpha1
+kind: SystemBlueprint
+metadata:
+  name: kras-g12c-screening-prod
+  version: 2.0.0
+  description: Secure, Spot-based screening of 100K compounds against KRAS G12C.
+  created_by: gcp_cloud_architect
+  tags: [gcp, batch, spot, cys12-covalent]
+  compound_library_license: PENDING_VERIFICATION # Flagged by Compliance
+
+agents:
+- api_version: meta-agent.biotech/v1alpha1
+  kind: AgentBlueprint
+  name: cheminformatics_agent
+  version: 1.1.0
+  description: Filters library for Michael acceptors (warheads) and ADMET.
+  runtime:
+    type: cloud_batch
+    execution_pattern: ASYNC_BATCH
+    compute:
+      machine_type: e2-standard-2
+      provisioning_model: SPOT
+      boot_disk_type: pd-balanced
+      boot_disk_size_gb: 20
+    scaling:
+      task_count: 10 # Split 100K into 10 shards
+      parallelism: 10
+    network:
+      subnetwork: private-subnet-us-central1
+      no_external_ip: true
+  data_inputs:
+    - source: gs://biotech-screening-prod-inputs/library.sdf
+  data_outputs:
+    - target: gs://biotech-screening-prod-interim/filtered/
+
+- api_version: meta-agent.biotech/v1alpha1
+  kind: AgentBlueprint
+  name: docking_agent
+  version: 1.1.0
+  description: Covalent docking (AutoDock Vina) targeting Cys12.
+  runtime:
+    type: cloud_batch
+    execution_pattern: ASYNC_BATCH
+    compute:
+      machine_type: c2-standard-4 # Compute Optimized for Vina
+      provisioning_model: SPOT
+      boot_disk_type: pd-balanced
+    scaling:
+      task_count: 100 # 100 shards of ~1000 filtered compounds
+      parallelism: 50
+    network:
+      subnetwork: private-subnet-us-central1
+      no_external_ip: true
+  data_inputs:
+    - source: gs://biotech-screening-prod-interim/filtered/
+  data_outputs:
+    - target: gs://biotech-screening-prod-outputs/poses/
+
+- api_version: meta-agent.biotech/v1alpha1
+  kind: AgentBlueprint
+  name: analysis_agent
+  version: 1.1.0
+  description: Parses Vina logs, extracts scores, loads to BigQuery.
+  runtime:
+    type: cloud_batch
+    execution_pattern: ASYNC_BATCH
+    compute:
+      machine_type: e2-standard-2
+      provisioning_model: SPOT
+    scaling:
+      task_count: 1
+  data_inputs:
+    - source: gs://biotech-screening-prod-outputs/poses/
+  data_outputs:
+    - target: bigquery://biotech-screening-prod.analytics.hits
+
+workflow:
+  type: sequential_pipeline
+  orchestration: cloud_workflows
+  steps:
+  - id: filter_library
+    agent: cheminformatics_agent
+  - id: run_docking
+    agent: docking_agent
+    depends_on: [filter_library]
+  - id: analyze_results
+    agent: analysis_agent
+    depends_on: [run_docking]
+
+infrastructure:
+  project_id: 'biotech-screening-prod'
+  region: us-central1
+  security:
+    vpc_sc_perimeter: 'projects/biotech-screening-prod' # Enforces data residency
+    cmek_key_name: 'projects/biotech-security/locations/us-central1/keyRings/screening-ring/cryptoKeys/lab-data'
+    audit_logs:
+      services: [storage.googleapis.com, batch.googleapis.com]
+  network:
+    vpc_name: screening-vpc
+    subnetwork: private-subnet-us-central1
+    private_google_access: true # Required for VMs with no external IP to reach GCS
+  resources:
+    - name: input-bucket
+      type: google.storage.bucket
+      spec:
+        location: us-central1
+        class: STANDARD
+        encryption: CMEK
+        versioning: true
+    - name: output-bucket
+      type: google.storage.bucket
+      spec:
+        location: us-central1
+        class: STANDARD
+        encryption: CMEK
+        lifecycle_rule:
+          action: SetStorageClass
+          storage_class: ARCHIVE
+          age_days: 7
+    - name: analytics-dataset
+      type: google.cloud.bigquery.dataset
+      spec:
+        location: us-central1
+        encryption: CMEK
+
+budget:
+  estimated_monthly_usd: 95.00
+  breakdown:
+    compute: 85.00 # Cloud Batch (Spot)
+    storage: 5.00
+    ai_api: 5.00 # Gemini 1.5 Flash for summary only
+    networking: 0.00 # Internal only
+  rationale: 'Unified on Cloud Batch Spot VMs to meet strict $100 cap.'
+
+compliance:
+  data_classification: Proprietary
+  controls:
+    - VPC-SC
+    - CMEK
+    - Audit Logs
+    - Least Privilege IAM
+```
+
+### Final GCP Architect Assessment
+1.  **Service Selection:** **Cloud Batch** is the correct tool. It handles the retries for Spot preemption automatically, which is critical for the budget.
+2.  **Cost:** The move to 100% Spot VMs brings the estimated compute cost to ~$0.01-$0.02 per core-hour. For 100K compounds (~3000 CPU-hours), this fits comfortably within $100.
+3.  **Security:**
+    *   **VPC-SC:** The perimeter is defined.
+    *   **Private Google Access:** Enabled. This is crucial because the Spot VMs have `no_external_ip: true` to prevent data exfiltration, but they still need to reach GCS APIs.
+    *   **CMEK:** Applied to buckets and BQ.
+4.  **Data Flow:** Linear and efficient. GCS -> Batch -> GCS -> BigQuery.
+
+**Verdict:** **APPROVED**. The blueprint is technically sound, compliant, and budget-optimized.
+
+[VOTE R5] compliance_officer (REQUEST_FOR_VOTE):
+As the Compliance Officer, I have reviewed the **SystemBlueprint (v1.0.0)** for the KRAS G12C covalent screening project. While significant progress has been made in hardening the infrastructure, I must provide a **REJECT/BLOCKING** vote at this stage due to the unresolved status of the compound library licensing.
+
+### 1. Data Classification
+| Data Element | Classification | Sensitivity |
+| :--- | :--- | :--- |
+| **100K Compound Library** | Proprietary / Research Data | High (IP Risk) |
+| **KRAS G12C Protein Structure** | Public / Research Data | Low |
+| **Docking Scores & Hit Lists** | Proprietary | High (IP Risk) |
+| **Audit Logs (Admin/Data)** | Internal Use | Medium |
+| **PHI/PII** | **None** | N/A (Confirmed for this stage) |
+
+---
+
+### 2. Compliance Checklist
+| Requirement | Status | Notes |
+| :--- | :--- | :--- |
+| **Data Classification Explicitly Defined** | **PASS** | Set to "Proprietary". |
+| **Audit Logging for Workflows** | **PASS** | `audit_logs_enabled: true` for Cloud Batch and Workflows. |
+| **License Verification** | **FAIL** | **FLAG:** `compound_library_license` is `PENDING_VERIFICATION`. |
+| **Data Residency Specified** | **PASS** | Locked to `us-central1`. |
+| **Encryption at Rest (CMEK)** | **PASS** | `cmek_enabled: true` for GCS and BigQuery. |
+| **Encryption in Transit** | **PASS** | Enforced by GCP default (TLS 1.2+). |
+| **GxP Traceability** | **PASS** | Cloud Workflows provides execution history. |
+
+---
+
+### 3. Required Security Controls
+*   **IAM:** 
+    *   Service accounts for `cheminformatics_agent`, `docking_agent`, and `analysis_agent` must follow the **Principle of Least Privilege**. 
+    *   The `docking_agent` requires `roles/batch.agentReporter` and `roles/storage.objectViewer` only for the specific input bucket.
+*   **VPC Service Controls (VPC-SC):** 
+    *   A Service Perimeter must be established around the project to prevent data exfiltration. 
+    *   The perimeter must include Cloud Batch, Cloud Storage, and BigQuery.
+*   **Data Loss Prevention (DLP):** 
+    *   While PHI is not expected, a DLP scan step is recommended for the final `analysis_agent` output before ingestion into BigQuery to ensure no unintended metadata leakage.
+*   **CMEK:** 
+    *   Customer-Managed Encryption Keys (CMEK) via Cloud KMS must be used for the GCS buckets storing the 100K compounds and the BigQuery dataset storing the hits.
+
+---
+
+### ⚠️ COMPLIANCE FLAGS & OBJECTIONS
+
+1.  **CRITICAL: License Verification Pending:** The blueprint cannot be finalized while the source of the 100K compounds is unverified. Using a library without a clear commercial or research license (e.g., ZINC, Enamine, or internal) poses a legal and regulatory risk to the organization's IP.
+2.  **Audit Log Retention:** While audit logs are enabled, the retention policy is not specified. For GxP-aligned research, we require a minimum of 2 years of logs for traceability of the screening results.
+3.  **Egress Policy:** The blueprint specifies `egress_policy: deny-all`. This is excellent for security, but the `analysis_agent` must be verified to ensure it doesn't require external API calls for ADMET property validation unless those endpoints are added to the VPC-SC allowed list.
+
+**VOTE: REJECT**
+*Reason: License verification for the 100K compound library must be completed and documented in the metadata before I can authorize the execution of this pipeline.*
+
+[VOTE R5] budget_controller (REQUEST_FOR_VOTE):
+I **OBJECT** to this proposal. 
+
+While the "Synthesis Summary" claims to have unified all agents to use Spot VMs, the actual YAML configuration for `cheminformatics_agent` and `analysis_agent` still lists `spot_vm: false`. This is a direct violation of my mandate to ensure cost-effectiveness for fault-tolerant batch workloads. I will not approve a blueprint that leaves 60-91% savings on the table for non-critical pre- and post-processing steps.
+
+Furthermore, the blueprint fails to specify the LLM model for the agent logic. I mandate the use of **Gemini 1.5 Flash**; using Pro for orchestration of RDKit or Vina scripts is an unjustifiable expense.
+
+### 1. Cost Estimate: $91.20
+*This estimate assumes the correction to Spot VMs for all agents and a 100K compound run.*
+
+### 2. Monthly Cost Breakdown
+| Category | Service | Cost (USD) |
+| :--- | :--- | :--- |
+| **Compute** | Cloud Batch (Spot VMs, E2-standard-4) | $90.50 |
+| **Storage** | GCS (Standard Tier, ~10GB) | $0.50 |
+| **AI/ML API** | Gemini 1.5 Flash (Orchestration/Logic) | $0.20 |
+| **Networking** | Egress/VPC SC Logs | $0.00 |
+| **Total** | | **$91.20** |
+
+### 3. Cost Optimization Recommendations
+*   **Fix the YAML:** Immediately toggle `spot_vm: true` for `cheminformatics_agent` and `analysis_agent`. There is no reason for these to run on standard-priced instances.
+*   **Machine Type Right-Sizing:** The `cheminformatics_agent` is currently assigned 2 vCPUs and 4GB RAM. RDKit filtering is highly efficient; if the library is provided in a single SMILES file, an `e2-medium` (Spot) is more than sufficient and would cut that specific step's cost by 50%.
+*   **Storage Lifecycle:** Ensure GCS buckets have a lifecycle policy to move docking results to **Nearline** or **Coldline** storage 30 days after the analysis is complete, as these are "Proprietary" and likely won't be accessed frequently after the top hits are identified.
+
+**VOTE: NO** (Pending correction of `spot_vm` fields in the YAML).
+
+[VOTE R5] computational_chemist (REQUEST_FOR_VOTE):
+As the **Computational Chemist**, I vote **NO**.
+
+The blueprint is **scientifically incomplete** and will fail to execute. You cannot simply pipe a filtered SMILES list into AutoDock Vina. Essential physics-based preparation steps are missing, and the algorithm selection for "covalent docking" is technically inaccurate without further specification.
+
+### Scientific Critique & Required Changes
+
+**1. Missing Step: Protein Preparation (Critical)**
+*   **Issue:** You cannot dock into a raw PDB structure (e.g., KRAS G12C crystal structure). It lacks hydrogen atoms and partial charges necessary for calculating binding energy.
+*   **Requirement:** Add a **Protein Prep** step or skill.
+*   **Tools:** `PDB2PQR` (for H-bond optimization) and `MGLTools` / `Open Babel` (to convert to PDBQT format).
+
+**2. Missing Step: Ligand 3D Preparation (Critical)**
+*   **Issue:** The Cheminformatics agent only "filters" (likely 2D SMILES). Docking requires 3D coordinates with energy-minimized conformers and specific file formats (PDBQT) containing charge information.
+*   **Requirement:** Update Cheminformatics Agent to include **3D Conformer Generation** and **PDBQT Conversion**.
+*   **Tools:** `RDKit` (EmbedMolecule, MMFFOptimizeMolecule) and `Meeko` or `Open Babel`.
+
+**3. Algorithm Mismatch: Covalent Docking vs. AutoDock Vina**
+*   **Issue:** Standard AutoDock Vina performs *non-covalent* docking. It does not model bond formation or the transition state of the covalent reaction with Cys12. Claiming it "performs covalent docking" is scientifically misleading.
+*   **Correction:** For a high-throughput screen of 100K compounds on a budget, we should not attempt rigorous covalent modeling (computationally expensive).
+*   **Proposed Workflow:**
+    1.  **Docking:** Run *non-covalent* docking with Vina.
+    2.  **Analysis:** Apply a **Geometric Filter** (Distance Constraint) to select poses where the ligand's electrophile (warhead) is within 3.5Å of the Cys12 sulfur.
+*   **Action:** Rename the step to "Docking with Geometric Constraints" or explicitly add a "Warhead Proximity Filter" in the Analysis agent.
+
+**4. Grid Box Definition**
+*   **Issue:** Vina requires a search space (center and size).
+*   **Requirement:** The Docking Agent must accept `grid_center_x/y/z` and `grid_size` parameters targeting the KRAS G12C switch-II pocket.
+
+### Summary of Required Blueprint Updates
+1.  **Cheminformatics Agent:** Add `RDKit 3D Generation` and `Meeko PDBQT Prep`.
+2.  **Docking Agent:** Add `Protein Prep` (PDB2PQR) capability (or a separate prep step).
+3.  **Methodology:** Clarify that this is "Non-covalent docking with post-hoc covalent warhead proximity filtering" to match the tool capabilities (Vina).
+
+I cannot sign off on a pipeline that skips the fundamental physics required for the simulation.
+
+[VOTE R5] gcp_architect (REQUEST_FOR_VOTE):
+Vote: **APPROVE**
+
+**Reasoning:**
+As the GCP Cloud Architect, I approve this blueprint based on the **Synthesis** decision to unify the architecture on **Cloud Batch**. This is the optimal configuration for this workload for the following reasons:
+
+1.  **Compute Efficiency (HPC Alignment):**
+    - Moving the **Cheminformatics** (Filtering) and **Analysis** steps to **Cloud Batch** (as noted in Patch 13 & 14) is architecturally superior to Cloud Run Jobs for this volume. Cloud Batch is designed for high-throughput array jobs (100k items) and handles queue management, retries, and Spot VM reclamation more natively than Cloud Run for scientific workflows.
+    - This unification simplifies the infrastructure stack (single compute backend) and reduces operational complexity.
+
+2.  **Cost Optimization:**
+    - The budget of **$95** is extremely tight for 100k compounds. It is only viable by leveraging **Spot VMs** across the *entire* pipeline, not just the docking step.
+    - If we assume a 50% filtration rate (50k compounds docked) at ~2 minutes per dock on Spot N2D instances, the cost fits. Using Cloud Run (on-demand pricing) for pre/post-processing would likely blow the budget.
+
+3.  **Security & Compliance:**
+    - The inclusion of **VPC Service Controls (VPC-SC)** and **CMEK** satisfies the strict "Proprietary" data classification.
+    - **Note on Egress:** The `egress_policy: deny-all` requires that all container images be pre-built (no `pip install` at runtime) and the compound library must be pre-ingested into the secure GCS bucket. This is a valid, high-security pattern.
+
+**Implementation Note:**
+Ensure the final deployment manifests explicitly update `agents[0].runtime.type` and `agents[2].runtime.type` to `cloud_batch` to match the Patch History (v13, v14), as the YAML draft currently displays `cloud_run_job`.
+
+[VOTE R5] compliance_officer (REQUEST_FOR_VOTE):
+As the Compliance Officer, I have reviewed the **SystemBlueprint v1.0.0**. While significant progress has been made in hardening the security posture, there are critical omissions regarding data residency and identity management that must be addressed before final approval.
+
+### 1. Data Classification
+| Data Element | Classification | Sensitivity |
+| :--- | :--- | :--- |
+| **Compound Library (Enamine REAL)** | Proprietary Research Data | High (IP) |
+| **Protein Structure (KRAS G12C)** | Public Research Data | Low |
+| **Docking Poses & Scores** | Proprietary Research Data | High (IP) |
+| **Audit & Execution Logs** | Regulatory/Internal | Medium |
+| **Service Account Credentials** | Secret/Internal | Critical |
+
+---
+
+### 2. Compliance Checklist
+| Requirement | Status | Notes |
+| :--- | :--- | :--- |
+| **Data Classification Defined** | **PASS** | Set to "Proprietary" in compliance block. |
+| **Audit Logging** | **PASS** | Enabled with 730-day retention (GxP aligned). |
+| **License Verification** | **PASS** | Enamine_REAL_Space_Verified specified. |
+| **Encryption at Rest** | **PASS** | CMEK enabled for infrastructure. |
+| **Encryption in Transit** | **FAIL** | Not explicitly enforced for A2A communication. |
+| **Data Residency** | **FAIL** | Region is `us-central1`, but no residency constraint policy is defined. |
+| **IAM Least Privilege** | **FAIL** | Service account structure per agent is missing. |
+
+---
+
+### 3. Required Security Controls
+*   **IAM:** Each agent (`cheminformatics_agent`, `docking_agent`, etc.) must be assigned a **unique Service Account**. The `docking_agent` requires `roles/storage.objectViewer` on the input bucket and `roles/storage.objectCreator` on the output bucket. No agent should have `roles/editor` or `roles/owner`.
+*   **VPC-SC:** A Service Perimeter must encompass Cloud Batch, Cloud Storage, and BigQuery to prevent data exfiltration.
+*   **Encryption:** 
+    *   **At Rest:** Use Cloud KMS (CMEK) for all GCS buckets and BigQuery datasets.
+    *   **In Transit:** Enforce TLS 1.2+ for all internal agent-to-agent (A2A) calls.
+*   **Data Residency:** A formal requirement must be added to the `compliance` block stating: *"All data and compute must remain within the us-central1 region to comply with internal sovereignty policies."*
+
+---
+
+### 🚩 FLAG: COMPLIANCE BLOCKS
+1.  **Missing Data Residency:** The blueprint specifies a region but lacks a mandatory residency policy. This is a risk for future GxP audits.
+2.  **Missing Encryption in Transit:** The runtime configuration does not explicitly require encrypted channels for data movement between Cloud Batch jobs.
+3.  **Missing IAM Specification:** The blueprint lacks the definition of Service Accounts for the agents, violating the principle of Least Privilege.
+
+### Final Recommendation: **VOTE: NO (BLOCKING)**
+**Reason:** I cannot approve until the **Data Residency** requirement is explicitly added to the compliance block and **Service Account** assignments are defined for each agent to ensure auditability and least privilege. 
+
+**Required Action:** Update the `compliance` section to include `residency_requirement: us-central1` and add `service_account` fields to each agent's `runtime` configuration.
+
+[VOTE R5] budget_controller (REQUEST_FOR_VOTE):
+I **OBJECT** to the current blueprint. 
+
+Despite the "Synthesis Summary" stating all agents were unified to Spot Batch, the **YAML definition** for `cheminformatics_agent` and `analysis_agent` still shows `spot_vm: false`. This is a direct violation of the cost-efficiency mandate for fault-tolerant batch workloads. 
+
+Additionally, the `agent_config` does not specify the LLM model. I mandate the use of **Gemini 1.5 Flash**; using Gemini 1.5 Pro for these orchestration tasks would increase token costs by ~20x without performance justification.
+
+### 1. Cost Estimate (Per Full Run of 100K Compounds)
+**Total Estimated Cost: $26.42**
+*Based on us-central1 pricing.*
+
+*   **Cheminformatics (100K compounds):** ~$0.27 (28 vCPU hours on e2-medium Spot)
+*   **Docking (100K compounds):** ~$24.25 (625 machine hours on e2-standard-4 Spot)
+*   **Analysis & Prep:** ~$1.50 (Compute + BigQuery I/O)
+*   **Storage & API:** ~$0.40 (GCS Standard Tier + Gemini 1.5 Flash tokens)
+
+### 2. Monthly Cost Breakdown (Assuming 1 full run/month)
+| Category | Cost (USD) | Notes |
+| :--- | :--- | :--- |
+| **Compute** | $25.52 | Cloud Batch using Spot VMs (e2-series) |
+| **Storage** | $0.50 | 20GB (SDFs, PDBQTs, Logs) in GCS Standard |
+| **AI/ML API** | $0.40 | Gemini 1.5 Flash (Orchestration & Filtering logic) |
+| **Total** | **$26.42** | **Savings of ~$68 vs. non-Spot instances** |
+
+### 3. Cost Optimization Recommendations
+1.  **Enforce Spot VMs:** Change `spot_vm: true` for `cheminformatics_agent` and `analysis_agent` immediately. This reduces compute costs by **~71%** compared to standard pricing.
+2.  **Regional Locality:** Ensure the GCS bucket and Cloud Batch jobs are in the same region (`us-central1`). Cross-region egress for 100K compound files will unnecessarily inflate the "Networking" line item.
+3.  **Storage Lifecycle Policy:** Set a GCS lifecycle rule to move docking results to **Archive Storage** after 30 days. This reduces storage costs from $0.02/GB to $0.0012/GB.
+
+**VOTE: NO** (until `spot_vm: true` is reflected in the YAML for all agents).
+
+[VOTE R5] computational_chemist (REQUEST_FOR_VOTE):
+The current blueprint has improved by adding protein preparation and clarifying the covalent docking strategy. However, as the Computational Chemist, I cannot vote YES yet due to a significant algorithmic inefficiency and a missing tool dependency that will cause the pipeline to fail or exceed the budget.
+
+**Vote: NO**
+
+### 1. Scientific & Computational Efficiency (Critical)
+**Issue:** The `docking_agent` is configured to use **"flexible side-chains"** for the entire 100K compound library.
+**Impact:** Flexible receptor docking increases the search space exponentially. Running this on 100K compounds is computationally prohibitive for a $95 budget and unnecessary for a primary screen.
+**Requirement:** Change the algorithm to **Rigid Receptor Docking** for the initial 100K screen. You can add a downstream step to perform flexible docking only on the top 1% of hits (refined screening), but do not do it for the whole library.
+
+### 2. Toolchain Gap (Critical)
+**Issue:** The `cheminformatics_agent` description implies using **RDKit** for PDBQT generation.
+**Impact:** RDKit does not natively support the PDBQT format (specifically Gasteiger partial charge assignment and AutoDock atom typing) required by AutoDock Vina. The agent will fail to produce valid input for the docking engine.
+**Requirement:** Explicitly add **Open Babel** (e.g., `obabel`) or **Meeko** to the `cheminformatics_agent` skills/description to ensure valid PDBQT conversion.
+
+### 3. Infrastructure Consistency (Minor)
+**Issue:** The YAML definition for `cheminformatics_agent` and `analysis_agent` still lists `runtime: cloud_run_job`, despite the Synthesis Summary stating all agents were unified to `cloud_batch`.
+**Requirement:** Ensure the YAML reflects the `cloud_batch` decision to utilize Spot VMs effectively as agreed.
+
+**Scientific Recommendation for Approval:**
+> "Update `docking_agent` to use **Rigid Receptor** docking for the 100K screen. Add **Open Babel** to `cheminformatics_agent` for PDBQT conversion. Fix YAML runtimes to Batch."
+
+[VOTE R5] compliance_officer (REQUEST_FOR_VOTE):
+As the Compliance Officer, I have reviewed the final blueprint for the KRAS G12C covalent screening project. The current configuration addresses the core regulatory requirements for intellectual property protection and GxP-aligned traceability.
+
+### 1. Data Classification
+| Data Type | Classification | Sensitivity | Retention |
+| :--- | :--- | :--- | :--- |
+| **Compound Library (Enamine REAL)** | Proprietary / IP | High | 30 Days (Lifecycle) |
+| **Protein Target (KRAS G12C)** | Public / Research | Low | 30 Days (Lifecycle) |
+| **Docking Scores & Hit Lists** | Proprietary / IP | High | 2 Years (Regulatory) |
+| **Audit Logs (Cloud Logging)** | Regulatory | Medium | 730 Days |
+| **PHI/PII** | **N/A** | **None** | **NOT AUTHORIZED** |
+
+---
+
+### 2. Compliance Checklist
+| Requirement | Status | Evidence/Notes |
+| :--- | :--- | :--- |
+| **Data Classification** | **PASS** | Defined as "Proprietary" in compliance block. |
+| **Audit Logging** | **PASS** | `audit_logs_enabled: true` with 730-day retention. |
+| **License Verification** | **PASS** | `Enamine_REAL_Space_Verified` specified in metadata. |
+| **Data Residency** | **PASS** | Restricted to `us-central1`. |
+| **Encryption at Rest** | **PASS** | `cmek_enabled: true` for all storage and compute. |
+| **Encryption in Transit** | **PASS** | TLS 1.2+ enforced by GCP infrastructure. |
+| **VPC Service Controls** | **PASS** | `vpc_sc_enabled: true` to prevent data exfiltration. |
+| **PHI/PII Handling** | **PASS** | System is not scoped for patient data; no PHI fields present. |
+
+---
+
+### 3. Required Security Controls
+
+*   **IAM (Identity & Access Management):**
+    *   **Principle of Least Privilege:** Each agent (Batch Job) must run under a dedicated **Custom Service Account** (e.g., `docking-agent-sa@...`).
+    *   **Permissions:** Service accounts are restricted to `roles/storage.objectViewer` for inputs and `roles/storage.objectCreator` for outputs. No broad `Editor` or `Owner` roles permitted.
+*   **VPC-SC (VPC Service Controls):**
+    *   A service perimeter must encompass the Cloud Batch API, Cloud Storage, and BigQuery to prevent the movement of proprietary compound data to external projects.
+*   **Encryption (CMEK):**
+    *   All Cloud Storage buckets and Cloud Batch boot disks must be encrypted using a **Cloud KMS key** managed by the security team, not the default Google-managed keys.
+*   **Network Security:**
+    *   `egress_policy: deny-all` is enforced for all agents to prevent unauthorized data transmission during the screening process.
+
+---
+
+### Final Compliance Verdict: **APPROVE**
+
+**Condition:** The system is strictly authorized for **in-silico research data only**. If any clinical trial data or patient-derived sequences (PHI) are introduced in future phases, a full HIPAA/HITECH assessment and a Business Associate Agreement (BAA) review will be required.
+
+**VOTE: YES**
+
+[VOTE R5] budget_controller (REQUEST_FOR_VOTE):
+As the **Budget Controller**, I have reviewed the final blueprint. While the transition to **Cloud Batch with Spot VMs** and **Gemini 1.5 Flash** has significantly reduced the projected waste, I am still seeing room for aggressive optimization. 
+
+The previous estimate of $95.00 is **over-provisioned**. Based on current GCP Spot pricing for `us-central1`, we can execute this 100K compound screen for under **$45.00**.
+
+### 1. Cost Estimate: $43.00 USD
+This estimate covers the end-to-end screening of 100,000 compounds, including protein preparation, filtering, docking, and hit analysis.
+
+### 2. Monthly Cost Breakdown
+| Category | Service | Estimated Cost (USD) | Rationale |
+| :--- | :--- | :--- | :--- |
+| **Compute** | Cloud Batch (Spot VMs) | **$34.50** | ~850 core-hours on `e2-standard-4` Spot instances ($0.034/hr) + overhead. |
+| **Storage** | GCS & BigQuery | **$2.50** | 100K PDBQT files (~1.5GB) + BQ ingestion for top 1k hits. |
+| **AI/ML API** | Gemini 1.5 Flash | **$1.00** | Orchestration and logic (Flash is $0.075/1M tokens; usage is minimal). |
+| **Networking** | VPC SC & Logging | **$5.00** | Audit logs and VPC Service Control overhead. |
+| **Total** | | **$43.00** | |
+
+### 3. Cost Optimization Recommendations
+*   **Recommendation 1: Implement Checkpointing for Spot Reclaims.** Since we are using Spot VMs for a 100K compound batch, there is a risk of preemption. Ensure the docking script processes compounds in small chunks (e.g., 100 compounds per task) and writes results to GCS immediately. This prevents re-paying for compute on tasks that are interrupted.
+*   **Recommendation 2: Use `n2d-standard` for Docking.** In many regions, N2D (AMD) Spot instances offer better price-performance for floating-point heavy workloads like AutoDock Vina compared to E2.
+*   **Recommendation 3: Hard Budget Alert.** I am setting a mandatory **Budget Alert at $80.00 (84% of the $95 cap)**. If the pipeline exceeds this due to retries or unexpected docking complexity, the workflow must auto-terminate for manual review.
+
+### Final Decision: **VOTE: YES**
+The architecture is now compliant with my cost-saving mandates. The use of Spot VMs for all agents and the switch to Flash models has eliminated the "premium tax" usually associated with these pipelines. 
+
+**I approve this blueprint provided the $95.00 cap is treated as a hard ceiling, not a target.**
+
+[VOTE R5] gcp_architect (REQUEST_FOR_VOTE):
+**Vote: APPROVE**
+
+**Rationale:**
+The architecture has successfully converged on the most efficient pattern for High-Throughput Screening (HTS) on GCP.
+
+1.  **Service Selection (Cloud Batch):**
+    *   **Correctness:** Moving all agents (Cheminformatics, Docking, Analysis) to **Cloud Batch** is the correct architectural decision. Cloud Run is designed for request-response services, whereas screening 100K compounds is a throughput-oriented batch workload. Cloud Batch handles the queueing, retries, and provisioning of compute resources far more effectively for this use case.
+    *   **Simplicity:** Unifying the runtime removes the complexity of managing two different compute environments.
+
+2.  **Cost Optimization (Spot VMs):**
+    *   Enforcing **Spot VMs** across the board is the only viable way to execute 100,000 docking runs within a $95 budget. Cloud Batch handles Spot preemption gracefully, ensuring the job completes even if individual nodes are reclaimed.
+
+3.  **Security & Compliance:**
+    *   **VPC Service Controls** and **CMEK** provide the necessary hardening for proprietary drug discovery data without over-complicating the network topology.
+    *   **Data Residency** in `us-central1` ensures compliance and minimizes cross-region data transfer costs.
+
+4.  **Correction Note:**
+    *   *Observation:* The provided YAML artifact still lists `cloud_run_job` for the `cheminformatics_agent` and `analysis_agent`.
+    *   *Action:* My approval is based on the **Synthesis Summary** and **Patch History** (Patches 13, 14, 24, 25) which explicitly switch these to `cloud_batch`. Ensure the final deployment manifest reflects `type: cloud_batch` for all agents to avoid deployment failures or budget overruns.
+
+**Architecture Status:** VALIDATED
+**Next Step:** Deploy to Cloud Workflows.
+
+[VOTE R5] computational_chemist (REQUEST_FOR_VOTE):
+Vote: **APPROVE**
+
+**Reasoning:**
+The revised blueprint correctly balances scientific rigor with the strict budget constraints ($95).
+1.  **Algorithm Selection:** Switching to **Rigid Receptor Docking (AutoDock Vina)** followed by a **Geometric Filter (<3.5Å to Cys12)** is the standard industry approach for high-throughput covalent screening (Virtual Screening). Full covalent docking protocols would be too computationally expensive for 100K compounds on this budget.
+2.  **Toolchain:** The use of **RDKit** for warhead filtering and **Open Babel** for 3D conformer generation/PDBQT conversion is scientifically accurate and cost-effective.
+3.  **Compute:** Cloud Batch with Spot VMs is the correct infrastructure choice for this embarrassingly parallel workload.
+
+**Scientific Advisory (Implementation Requirements):**
+While the blueprint is approved, the following parameters are critical for the *execution* phase to succeed:
+*   **Target Structure:** You **MUST** use a **Holo-structure** of KRAS G12C (e.g., PDB: **6OIM** or similar co-crystal) where the Switch II pocket is *already open*. Rigid docking into an Apo (closed) structure will result in a 100% false negative rate as the pocket is cryptic.
+*   **Grid Box:** The docking grid must be explicitly centered on **Cysteine 12** with dimensions (approx. 20x20x20 Å) covering the induced pocket.
+*   **Control:** A positive control (e.g., Sotorasib/AMG 510) must be included in the screening deck to validate that the <3.5Å distance filter captures the correct binding mode.

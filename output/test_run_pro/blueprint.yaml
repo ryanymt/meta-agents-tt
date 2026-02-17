@@ -1,0 +1,544 @@
+api_version: meta-agent.biotech/v1alpha1
+kind: SystemBlueprint
+metadata:
+  name: kras-g12c-covalent-screen
+  version: 1.0.0
+  description: Screen 100K compounds against KRAS G12C for covalent binding hits
+  session_id: ''
+  created_by: recruitment_board
+  created_at: '2026-02-17T09:31:26.834457Z'
+  tags: []
+agents:
+- api_version: meta-agent.biotech/v1alpha1
+  kind: AgentBlueprint
+  name: library-prep-agent
+  version: 1.0.0
+  description: Prepares compound library from ZINC15 Covalent Subset. Verifies license. Uses RDKit to
+    filter for acrylamide warheads and tags the reactive beta-carbon for geometric filtering. Generates
+    3D conformers.
+  status: new
+  agent_config:
+    model: gemini-1.5-flash-001
+    temperature: 0.2
+    max_output_tokens: 4096
+    system_instruction: ''
+    decided_by: manager
+    rationale: ''
+  skill_references: []
+  reference_implementations: []
+  runtime:
+    type: cloud_run_job
+    execution_pattern: SYNC
+    compute:
+      cpu: '2'
+      memory: 4Gi
+      timeout_seconds: 14400
+      max_retries: 2
+      spot_vm: true
+    scaling:
+      min_instances: 0
+      max_instances: 20
+      concurrency: 1
+    network:
+      egress_policy: deny-all
+      decided_by: ''
+      rationale: ''
+    decided_by: manager
+    rationale: Initial filtering and preparation of the 100K library.
+  data_inputs: []
+  data_outputs: []
+  interface:
+    protocol: A2A
+    inputs: []
+    outputs: []
+  error_handling:
+    max_retries: 2
+    backoff: exponential
+    retryable_errors: []
+    fallback_action: notify_manager
+    decided_by: ''
+  env_vars: {}
+  testing:
+    unit_tests: []
+- api_version: meta-agent.biotech/v1alpha1
+  kind: AgentBlueprint
+  name: docking-batch-agent
+  version: 1.0.0
+  description: 'Performs high-throughput bulk docking using AutoDock Vina on CPU Spot instances. Includes
+    post-docking geometric filter: Distance < 4.0A between the tagged acrylamide beta-carbon and Cys12
+    SG atom.'
+  status: new
+  agent_config:
+    temperature: 0.2
+    max_output_tokens: 4096
+    system_instruction: ''
+    decided_by: manager
+    rationale: ''
+  skill_references: []
+  reference_implementations: []
+  runtime:
+    type: cloud_batch
+    execution_pattern: ASYNC_BATCH
+    compute:
+      cpu: '4'
+      memory: 16Gi
+      timeout_seconds: 1800
+      max_retries: 2
+      spot_vm: true
+    scaling:
+      min_instances: 0
+      max_instances: 10
+      concurrency: 1
+    network:
+      egress_policy: deny-all
+      decided_by: ''
+      rationale: ''
+    decided_by: manager
+    rationale: Cost-effective bulk screening of 100K compounds using Spot VMs.
+  data_inputs: []
+  data_outputs: []
+  interface:
+    protocol: A2A
+    inputs: []
+    outputs: []
+  error_handling:
+    max_retries: 2
+    backoff: exponential
+    retryable_errors: []
+    fallback_action: notify_manager
+    decided_by: ''
+  env_vars: {}
+  testing:
+    unit_tests: []
+- api_version: meta-agent.biotech/v1alpha1
+  kind: AgentBlueprint
+  name: gnina-rescoring-agent
+  version: 1.0.0
+  description: Rescores filtered hits using GNINA CNN scoring on GPU.
+  status: new
+  agent_config:
+    temperature: 0.2
+    max_output_tokens: 4096
+    system_instruction: ''
+    decided_by: manager
+    rationale: ''
+  skill_references: []
+  reference_implementations: []
+  runtime:
+    type: cloud_batch
+    execution_pattern: ASYNC_BATCH
+    compute:
+      cpu: '4'
+      memory: 16Gi
+      gpu_type: nvidia-t4
+      gpu_count: 1
+      timeout_seconds: 1800
+      max_retries: 2
+      spot_vm: true
+    scaling:
+      min_instances: 0
+      max_instances: 10
+      concurrency: 1
+    network:
+      egress_policy: deny-all
+      decided_by: ''
+      rationale: ''
+    decided_by: manager
+    rationale: High-accuracy rescoring for the top 5-10% of compounds that passed the geometric filter.
+  data_inputs: []
+  data_outputs: []
+  interface:
+    protocol: A2A
+    inputs: []
+    outputs: []
+  error_handling:
+    max_retries: 2
+    backoff: exponential
+    retryable_errors: []
+    fallback_action: notify_manager
+    decided_by: ''
+  env_vars: {}
+  testing:
+    unit_tests: []
+- api_version: meta-agent.biotech/v1alpha1
+  kind: AgentBlueprint
+  name: receptor-prep-agent
+  version: 1.0.0
+  description: 'Prepares the KRAS G12C receptor (PDB: 6OIM). Explicitly removes co-crystallized ligand
+    (Sotorasib) while STRICTLY PRESERVING GDP and Mg2+ cofactors. Restores Cys12 to free thiol state using
+    PDBFixer. Adds hydrogens (pH 7.4), defines Grid Box centered on Cys12. Performs validation redocking.'
+  status: new
+  agent_config:
+    temperature: 0.2
+    max_output_tokens: 4096
+    system_instruction: ''
+    decided_by: manager
+    rationale: ''
+  skill_references: []
+  reference_implementations: []
+  runtime:
+    type: cloud_run_job
+    execution_pattern: SYNC
+    compute:
+      cpu: '2'
+      memory: 4Gi
+      timeout_seconds: 1800
+      max_retries: 2
+      spot_vm: true
+    scaling:
+      min_instances: 0
+      max_instances: 10
+      concurrency: 1
+    network:
+      egress_policy: deny-all
+      decided_by: ''
+      rationale: ''
+    decided_by: manager
+    rationale: Mandatory scientific step to ensure docking accuracy and validate protocol with positive
+      control.
+  data_inputs: []
+  data_outputs: []
+  interface:
+    protocol: A2A
+    inputs: []
+    outputs: []
+  error_handling:
+    max_retries: 2
+    backoff: exponential
+    retryable_errors: []
+    fallback_action: notify_manager
+    decided_by: ''
+  env_vars: {}
+  testing:
+    unit_tests: []
+workflow:
+  type: direct_acyclic_graph
+  steps:
+  - id: step_1_prep
+    agent: library-prep-agent
+    depends_on: []
+    inputs: {}
+    outputs_map: {}
+    continue_on: ''
+  - id: step_2_bulk_dock
+    agent: docking-batch-agent
+    depends_on:
+    - step_1_prep
+    - step_0_receptor_prep
+    inputs: {}
+    outputs_map: {}
+    continue_on: ''
+  - id: step_3_rescore
+    agent: gnina-rescoring-agent
+    depends_on:
+    - step_2_bulk_dock
+    inputs: {}
+    outputs_map: {}
+    continue_on: ''
+  - id: step_0_receptor_prep
+    agent: receptor-prep-agent
+    depends_on: []
+    inputs: {}
+    outputs_map: {}
+    continue_on: ''
+  error_strategy: fail_fast
+  orchestration: cloud_workflows
+infrastructure:
+  project_id: ''
+  region: us-central1
+  resources:
+  - google_storage_bucket
+  - google_compute_network
+  - google_kms_key_ring
+  - google_kms_crypto_key
+  - google_billing_budget
+budget:
+  estimated_monthly_usd: 40.0
+  breakdown:
+    compute: 0.0
+    storage: 0.0
+    ai_api: 0.0
+    networking: 0.0
+  decided_by: ''
+  rationale: ''
+compliance:
+  data_classification: Confidential/IP
+  regulations: []
+  controls:
+  - VPC-SC
+  - Private Google Access
+  - Audit Logs (Data Access)
+  - IAM Workload Identity
+  - CMEK Encryption
+  - License Verification
+  decided_by: ''
+  rationale: ''
+acceptance_criteria: []
+patch_history:
+- version: 4
+  timestamp: '2026-02-17T09:32:53.259554Z'
+  path: budget.estimated_monthly_usd
+  old_value: 0.0
+  new_value: 60.0
+  reason: Updated to include small GPU allocation for rescoring hits.
+  author: manager
+- version: 5
+  timestamp: '2026-02-17T09:32:53.260110Z'
+  path: compliance.data_classification
+  old_value: non-sensitive
+  new_value: Confidential/IP
+  reason: Updated per Compliance Officer requirement.
+  author: manager
+- version: 6
+  timestamp: '2026-02-17T09:32:53.260462Z'
+  path: compliance.controls
+  old_value: []
+  new_value:
+  - VPC-SC
+  - Private Google Access
+  - Audit Logs
+  - IAM Workload Identity
+  reason: Added required security controls.
+  author: manager
+- version: 7
+  timestamp: '2026-02-17T09:33:44.483821Z'
+  path: agents[0].runtime.compute.spot_vm
+  old_value: false
+  new_value: true
+  reason: Mandated by Budget Controller for cost savings.
+  author: manager
+- version: 8
+  timestamp: '2026-02-17T09:33:44.484319Z'
+  path: agents[0].agent_config.model
+  new_value: gemini-1.5-flash-001
+  reason: Mandated by Budget Controller to use Flash for cost.
+  author: manager
+- version: 9
+  timestamp: '2026-02-17T09:33:44.484695Z'
+  path: agents[1].runtime.compute.machine_type
+  new_value: n2d-standard-4
+  reason: Budget Controller recommendation for better price/performance.
+  author: manager
+- version: 10
+  timestamp: '2026-02-17T09:33:44.485027Z'
+  path: budget.estimated_monthly_usd
+  old_value: 60.0
+  new_value: 70.0
+  reason: Adjusted to $70 based on Budget Controller's detailed calculation.
+  author: manager
+- version: 11
+  timestamp: '2026-02-17T09:33:44.485466Z'
+  path: infrastructure.resources
+  old_value: []
+  new_value:
+  - google_storage_bucket
+  - google_compute_network
+  - google_kms_key_ring
+  - google_kms_crypto_key
+  - google_billing_budget
+  reason: Added KMS keys and Budget Alert as requested.
+  author: manager
+- version: 12
+  timestamp: '2026-02-17T09:33:44.485794Z'
+  path: compliance.controls
+  old_value:
+  - VPC-SC
+  - Private Google Access
+  - Audit Logs
+  - IAM Workload Identity
+  new_value:
+  - VPC-SC
+  - Private Google Access
+  - Audit Logs (Data Access)
+  - IAM Workload Identity
+  - CMEK Encryption
+  - License Verification
+  reason: Added CMEK and License Verification.
+  author: manager
+- version: 13
+  timestamp: '2026-02-17T09:34:27.552417Z'
+  path: infrastructure.iam_policy
+  new_value: Grant roles/cloudkms.cryptoKeyEncrypterDecrypter to Compute Engine SA and Cloud Storage SA.
+  reason: Added specific CMEK roles for Service Agents.
+  author: manager
+- version: 14
+  timestamp: '2026-02-17T09:34:27.553052Z'
+  path: agents[0].runtime.network.vpc_access
+  new_value: Direct VPC Egress to screening-vpc
+  reason: Required for Private Google Access with egress=deny-all.
+  author: manager
+- version: 16
+  timestamp: '2026-02-17T09:35:16.201967Z'
+  path: workflow.steps[1].depends_on
+  old_value:
+  - step_1_prep
+  new_value:
+  - step_0_receptor_prep
+  reason: Library prep depends on valid receptor/protocol.
+  author: manager
+- version: 17
+  timestamp: '2026-02-17T09:35:16.202314Z'
+  path: compliance.data_residency
+  new_value: US-only
+  reason: Explicit residency requirement.
+  author: manager
+- version: 18
+  timestamp: '2026-02-17T09:35:16.202584Z'
+  path: agents[0].description
+  old_value: 'Prepares compound library: Filters for covalent warheads (acrylamides), generates 3D conformers,
+    and shards into chunks for batch processing.'
+  new_value: Prepares compound library from ZINC15 Covalent Subset. Verifies license, filters for acrylamide
+    warheads, generates 3D conformers.
+  reason: Clarified library source and license check.
+  author: manager
+- version: 19
+  timestamp: '2026-02-17T09:36:10.718715Z'
+  path: workflow.steps[1].depends_on
+  old_value:
+  - step_0_receptor_prep
+  new_value:
+  - step_1_prep
+  - step_0_receptor_prep
+  reason: 'Correcting dependency: Bulk dock needs both receptor and library.'
+  author: manager
+- version: 20
+  timestamp: '2026-02-17T09:36:10.719139Z'
+  path: agents[0].description
+  old_value: Prepares compound library from ZINC15 Covalent Subset. Verifies license, filters for acrylamide
+    warheads, generates 3D conformers.
+  new_value: Prepares compound library from ZINC15 Covalent Subset. Verifies license. Uses RDKit to filter
+    for acrylamide warheads and tags the reactive beta-carbon for geometric filtering. Generates 3D conformers.
+  reason: 'Chemist Requirement: Tag reactive beta-carbon for geometric filter.'
+  author: manager
+- version: 21
+  timestamp: '2026-02-17T09:36:10.719456Z'
+  path: agents[3].description
+  old_value: 'Prepares the KRAS G12C receptor (PDB: 6OIM): Strips waters, adds hydrogens (pH 7.4), defines
+    Grid Box centered on Cys12, and performs validation redocking of Sotorasib (RMSD < 2.0A check).'
+  new_value: 'Prepares the KRAS G12C receptor (PDB: 6OIM) using PDBFixer/OpenMM. Strips waters, adds hydrogens
+    (pH 7.4), defines Grid Box centered on Cys12, and performs validation redocking of Sotorasib (RMSD
+    < 2.0A check).'
+  reason: 'Chemist Requirement: Use PDBFixer/OpenMM for robust protonation.'
+  author: manager
+- version: 22
+  timestamp: '2026-02-17T09:37:02.241448Z'
+  path: agents[0].runtime.execution.timeout_seconds
+  new_value: 3600
+  reason: Architect recommended increasing timeout for conformer generation.
+  author: manager
+- version: 23
+  timestamp: '2026-02-17T09:37:02.242106Z'
+  path: workflow.type
+  old_value: sequential_pipeline
+  new_value: direct_acyclic_graph
+  reason: Explicitly setting DAG type.
+  author: manager
+- version: 24
+  timestamp: '2026-02-17T09:38:20.398858Z'
+  path: agents[3].description
+  old_value: 'Prepares the KRAS G12C receptor (PDB: 6OIM) using PDBFixer/OpenMM. Strips waters, adds hydrogens
+    (pH 7.4), defines Grid Box centered on Cys12, and performs validation redocking of Sotorasib (RMSD
+    < 2.0A check).'
+  new_value: 'Prepares the KRAS G12C receptor (PDB: 6OIM). Explicitly removes co-crystallized ligand (Sotorasib)
+    and restores Cys12 to free thiol (wild-type) state using PDBFixer. Adds hydrogens (pH 7.4), defines
+    Grid Box centered on Cys12. performs validation redocking of Sotorasib (RMSD < 2.0A check).'
+  reason: 'Chemist mandatory fix: Explicitly remove ligand and restore Cys12.'
+  author: manager
+- version: 25
+  timestamp: '2026-02-17T09:38:20.399332Z'
+  path: agents[0].runtime.execution.timeout_seconds
+  new_value: 14400
+  reason: 'Architect fix: Increase timeout to 4 hours to prevent failure.'
+  author: manager
+- version: 26
+  timestamp: '2026-02-17T09:38:20.399633Z'
+  path: agents[0].runtime.compute.max_instances
+  new_value: 20
+  reason: 'Architect fix: Increase parallelism to 20 for faster prep.'
+  author: manager
+- version: 27
+  timestamp: '2026-02-17T09:38:20.399903Z'
+  path: agents[1].runtime.compute.machine_type
+  new_value: t2d-standard-4
+  reason: 'Budget Controller fix: Switch to T2D for better price/perf.'
+  author: manager
+- version: 28
+  timestamp: '2026-02-17T09:40:05.888641Z'
+  path: agents[0].runtime.execution.timeout_seconds
+  new_value: 14400
+  reason: 'Architect Mandatory Fix: 4h timeout to match agreed decision.'
+  author: manager
+- version: 29
+  timestamp: '2026-02-17T09:40:05.889323Z'
+  path: agents[0].runtime.scaling.max_instances
+  old_value: 10
+  new_value: 20
+  reason: 'Architect Mandatory Fix: 20 instances for parallelism.'
+  author: manager
+- version: 30
+  timestamp: '2026-02-17T09:40:05.889817Z'
+  path: agents[1].runtime.compute.machine_type
+  new_value: t2d-standard-4
+  reason: 'Architect/Budget Mandatory Fix: Explicit T2D machine type.'
+  author: manager
+- version: 31
+  timestamp: '2026-02-17T09:40:05.890335Z'
+  path: budget.estimated_monthly_usd
+  old_value: 70.0
+  new_value: 40.0
+  reason: 'Budget Controller Mandatory Fix: Reduced to $40 based on leaner estimate.'
+  author: manager
+- version: 32
+  timestamp: '2026-02-17T09:40:47.477132Z'
+  path: agents[0].runtime.compute.timeout_seconds
+  old_value: 1800
+  new_value: 14400
+  reason: Correcting YAML path for timeout per Architect feedback.
+  author: manager
+- version: 33
+  timestamp: '2026-02-17T09:40:47.477586Z'
+  path: agents[1].runtime.compute.machine_type
+  new_value: t2d-standard-4
+  reason: Ensuring T2D machine type is explicitly set in YAML.
+  author: manager
+- version: 34
+  timestamp: '2026-02-17T09:42:02.240243Z'
+  path: agents[3].description
+  old_value: 'Prepares the KRAS G12C receptor (PDB: 6OIM). Explicitly removes co-crystallized ligand (Sotorasib)
+    and restores Cys12 to free thiol (wild-type) state using PDBFixer. Adds hydrogens (pH 7.4), defines
+    Grid Box centered on Cys12. performs validation redocking of Sotorasib (RMSD < 2.0A check).'
+  new_value: 'Prepares the KRAS G12C receptor (PDB: 6OIM). Explicitly removes co-crystallized ligand (Sotorasib)
+    while STRICTLY PRESERVING GDP and Mg2+ cofactors. Restores Cys12 to free thiol state using PDBFixer.
+    Adds hydrogens (pH 7.4), defines Grid Box centered on Cys12. Performs validation redocking.'
+  reason: 'Chemist Mandatory Fix: Preserve GDP/Mg2+ cofactors while removing ligand.'
+  author: manager
+- version: 35
+  timestamp: '2026-02-17T09:42:02.240826Z'
+  path: agents[1].description
+  old_value: Performs high-throughput bulk docking using AutoDock Vina on CPU Spot instances. Includes
+    post-docking geometric filter (distance < 4.0A to Cys12).
+  new_value: 'Performs high-throughput bulk docking using AutoDock Vina on CPU Spot instances. Includes
+    post-docking geometric filter: Distance < 4.0A between the tagged acrylamide beta-carbon and Cys12
+    SG atom.'
+  reason: 'Chemist Mandatory Fix: Precise geometric filter (beta-carbon to SG).'
+  author: manager
+- version: 36
+  timestamp: '2026-02-17T09:42:02.241533Z'
+  path: agents[1].runtime.compute.machine_type
+  new_value: t2d-standard-4
+  reason: 'Architect Mandatory Fix: Explicit T2D machine type.'
+  author: manager
+- version: 37
+  timestamp: '2026-02-17T09:42:02.242099Z'
+  path: agents[1].runtime.compute.memory
+  old_value: 8Gi
+  new_value: 16Gi
+  reason: 'Architect Mandatory Fix: Match T2D memory.'
+  author: manager
+- version: 38
+  timestamp: '2026-02-17T09:42:23.107628Z'
+  path: metadata.name
+  old_value: ''
+  new_value: kras-g12c-covalent-screen
+  reason: Setting blueprint name.
+  author: manager

@@ -1,0 +1,1110 @@
+[PROPOSAL R2] compliance_officer (INSTRUCTION):
+As the Compliance Officer, I have reviewed the proposed virtual screening pipeline for KRAS G12C inhibitors. While the project correctly identifies the absence of PHI/PII by utilizing public datasets (ChEMBL and PDB), the current blueprint lacks the necessary technical controls for auditability and data integrity required for GxP-aligned research environments.
+
+### 1. Data Classification
+| Data Category | Classification | Description |
+| :--- | :--- | :--- |
+| **Input Compounds (ChEMBL)** | **Public** | Open-source bioactive molecule database (CC BY-SA 3.0). |
+| **Target Structure (PDB 6OIM)** | **Public** | Open-source protein structure (CC0). |
+| **Docking/MD Results** | **Research Data (Internal)** | Proprietary intellectual property generated during screening. |
+| **Pipeline Metadata/Logs** | **Audit Data** | Traceability data for regulatory compliance (GxP). |
+
+---
+
+### 2. Compliance Checklist & Status
+| Requirement | Status | Compliance Officer Notes |
+| :--- | :--- | :--- |
+| **PHI/PII Prevention** | **PASS** | ChEMBL and PDB 6OIM are verified public sources. No patient data involved. |
+| **Data Classification** | **PASS** | Explicitly defined in this review. |
+| **Audit Logging** | **FAIL** | **FLAGGED:** Cloud Audit Logs (Data Access) must be enabled for GCS and BigQuery. |
+| **License Verification** | **PASS** | ChEMBL (CC BY-SA 3.0) and PDB (CC0) allow for research use. |
+| **Data Residency** | **PASS** | Locked to `us-central1`. |
+| **Encryption at Rest** | **FAIL** | **FLAGGED:** Missing specification for CMEK (Customer-Managed Encryption Keys). |
+| **Encryption in Transit** | **PASS** | Default GCP TLS 1.2+ is sufficient for this classification. |
+
+---
+
+### 3. Required Security Controls
+
+To meet regulatory and security requirements, the following controls **MUST** be implemented in the infrastructure:
+
+#### **Identity and Access Management (IAM)**
+*   **Service Accounts:** Use a dedicated Service Account for `cloud_batch` with the `roles/logging.logWriter` and `roles/storage.objectUser` roles.
+*   **Least Privilege:** No user should have `owner` or `editor` roles. Use `roles/bigquery.dataEditor` for the analysis service account.
+
+#### **Network Security (VPC-SC)**
+*   **VPC Service Controls:** Establish a service perimeter around the `meta-agent-biotech` project to prevent data exfiltration from GCS/BigQuery to external projects.
+*   **Private Google Access:** Enable for the subnet used by Cloud Batch to ensure traffic to GCS stays within the Google network.
+
+#### **Data Protection & Encryption**
+*   **CMEK (Customer-Managed Encryption Keys):** Use Cloud KMS keys for the GCS bucket and BigQuery dataset. This ensures that even in a multi-tenant environment, the data is protected by keys managed by the biotech entity.
+*   **Object Versioning:** Enable on the GCS bucket to prevent accidental deletion of simulation results (Data Integrity requirement).
+
+#### **Auditability**
+*   **Cloud Audit Logs:** Enable "Data Access" logs for BigQuery and GCS. This is mandatory for GxP traceability to prove who accessed the results and when.
+
+---
+
+### **Compliance Officer's Verdict**
+**CONDITIONALLY APPROVED.**
+The pipeline is approved for development **ONLY IF** the following patch is applied to the blueprint to address the flagged deficiencies in audit logging and encryption.
+
+```yaml
+# Required Compliance Patch
+compliance:
+  data_classification: research-internal
+  regulations:
+    - GxP (Data Integrity)
+  controls:
+    - IAM_Least_Privilege
+    - VPC_Service_Controls
+    - CMEK_Encryption
+    - Cloud_Audit_Logs_Data_Access
+  decided_by: compliance_officer
+  rationale: "Ensures traceability of research results and prevents data exfiltration of proprietary hits."
+infrastructure:
+  resources:
+    - type: kms_key
+      name: research-encryption-key
+      purpose: "CMEK for GCS and BigQuery"
+    - type: storage_bucket
+      name: screening-results-us-central1
+      encryption: kms_key
+      versioning: true
+      logging: true
+```
+
+[PROPOSAL R2] budget_controller (INSTRUCTION):
+As the Budget Controller, I have reviewed the proposal for the KRAS G12C screening pipeline. While the science is sound, the current blueprint lacks the fiscal rigor required to stay under the $500.00/month cap while processing 50,000 compounds. 
+
+I am approving the use of **NVIDIA T4 GPUs** via **Cloud Batch Spot VMs**. I will **OBJECT** to any attempt to use A100 or L4 GPUs for this workload, as the T4 provides the best price-performance ratio for `gnina` and `gromacs` in this specific scale. I also **OBJECT** to the use of `gemini-3-pro-preview` for pipeline orchestration; `gemini-3-flash-preview` is more than sufficient for managing Cloud Workflows and parsing RDKit logs.
+
+### 1. Cost Estimate: $212.45 USD / Month
+This estimate assumes a single full run of the 50,000 compound library per month.
+
+| Category | Item | Quantity | Unit Cost (Spot) | Total |
+| :--- | :--- | :--- | :--- | :--- |
+| **Compute** | `n1-standard-4` + 1x T4 GPU (Docking) | 850 Hours | $0.22/hr | $187.00 |
+| **Compute** | `n1-standard-8` + 1x T4 GPU (MD) | 60 Hours | $0.35/hr | $21.00 |
+| **Storage** | GCS Standard (SDFs, Trajectories) | 150 GB | $0.02/GB | $3.00 |
+| **Storage** | BigQuery (Results & Analysis) | 10 GB | $0.02/GB | $0.20 |
+| **AI API** | Gemini 3 Flash (Orchestration) | 10M Tokens | $0.125/1M | $1.25 |
+| **Total** | | | | **$212.45** |
+
+### 2. Cost Optimization Recommendations
+
+*   **Aggressive Pre-Filtering:** Do not dock all 50,000 compounds with `gnina`'s CNN scoring immediately. Use `rdkit` to perform a "Lipinski's Rule of 5" and "PAINS" filter first. This typically reduces ChEMBL libraries by 20-30%, potentially saving **$50.00+** in compute costs.
+*   **Two-Stage Docking:** Run `gnina` with `--scoring vina` (CPU-only) for the initial 50k screen. Only promote the top 5,000 hits to the GPU-accelerated CNN rescoring. This reduces GPU hour requirements by 90%.
+*   **GCS Lifecycle Management:** Set a TTL (Time-to-Live) policy on the GCS bucket to delete intermediate `.pdbqt` and trajectory files after 14 days. We only need the final scores in BigQuery and the top 10 MD results.
+
+### 3. Monthly Cost Breakdown
+
+*   **Compute ($208.00):** 
+    *   Docking: 50,000 compounds @ ~1 min/compound on T4 Spot = 833 hours.
+    *   MD: 10 simulations @ 6 hours/sim (10ns) on T4 Spot = 60 hours.
+*   **Storage ($3.20):** 
+    *   GCS: $3.00 (Standard Tier, us-central1).
+    *   BigQuery: $0.20 (Active storage + negligible query costs).
+*   **AI/ML API ($1.25):** 
+    *   Gemini 3 Flash: $1.25 (Used for log analysis, error handling in Cloud Workflows, and summarizing top hits).
+
+**Budget Controller Verdict:** **PROCEED WITH CAUTION.** You are currently at 42% of your budget cap. Any shift from Spot VMs to On-Demand will result in an immediate budget breach ($0.95/hr vs $0.22/hr). I have set a budget alert at $400.00 for the `meta-agent-biotech` project. Use Flash, use Spot, or don't use the cloud at all.
+
+[PROPOSAL R2] computational_chemist (INSTRUCTION):
+As the Computational Chemist on the Recruitment Board, I have reviewed the request. I must immediately flag a critical scientific distinction: **Standard docking tools (including GNINA) perform non-covalent docking.** They do not simulate the formation of a chemical bond during the search phase.
+
+To screen for *covalent* inhibitors using `gnina`, we must adopt a "pre-reactive complex" strategy: we dock the compounds non-covalently and filter for poses where the electrophilic warhead is within reaction distance (approx. 3.5Å) of the nucleophilic Cysteine 12 sulfur.
+
+Here is the scientifically rigorous proposal for the pipeline, adhering to your tool constraints.
+
+### 1. ChEMBL Filtering (The "Warhead" Filter)
+We cannot simply take "50k compounds." We must select compounds capable of reacting with KRAS G12C.
+*   **Tool:** `rdkit` (Cheminformatics)
+*   **Method:**
+    1.  **Substructure Search:** Use SMARTS patterns to identify acrylamides (e.g., `[C;H2,H1]=C-C(=O)-N`), chloroacetamides, and vinyl sulfones.
+    2.  **ADMET/Lipinski:** Filter for Drug-likeness (MW < 500, LogP < 5) to ensure bioavailability.
+    3.  **PAINS Filter:** Remove Pan-Assay Interference Compounds to prevent false positives.
+*   **Output:** A curated SDF of electrophilic candidates.
+
+### 2. Receptor Preparation (The GDP Factor)
+*   **Scientific Flag:** KRAS is a GTPase. PDB 6OIM contains a GDP cofactor and a Magnesium ion. **You MUST NOT remove the GDP or Mg2+**, or the protein pocket will collapse/change shape, rendering the docking useless.
+*   **Tool:** `pdbfixer`
+*   **Steps:**
+    1.  Remove the co-crystallized inhibitor (AMG-510).
+    2.  **Keep** residues `GDP` and `MG`.
+    3.  Add missing hydrogens (pH 7.4).
+    4.  Identify the coordinates of Cys12 Sulfur (SG) to define the docking search space (autobox).
+
+### 3. Docking Strategy (Covalent-Aware Non-Covalent Docking)
+*   **Tool:** `gnina` (GPU-accelerated)
+*   **Algorithm:**
+    *   We will use `gnina` to generate poses.
+    *   **Crucial Step:** We cannot rely on the score alone. A compound might bind with high affinity but with the warhead pointing *away* from Cys12.
+    *   **Post-Docking Filter:** We must calculate the distance between the ligand's electrophilic carbon (beta-carbon of acrylamide) and the Cys12 Sulfur. Discard poses > 4.0Å.
+*   **Rescoring:**
+    *   Use GNINA's built-in CNN scoring (`--cnn_scoring`) on the filtered poses. This provides a probability score (0-1) of the pose being a true binder.
+
+### 4. Molecular Dynamics Validation (Stability Check)
+*   **Tool:** `gromacs`
+*   **Scope:** Top 10 candidates.
+*   **Method:**
+    *   **Topology:** Generate ligand topology (GAFF2/AM1-BCC) using `acpype` (wraps Open Babel/Antechamber) or `openbabel`.
+    *   **System:** Solvate in TIP3P water, neutralize with Na+/Cl- ions.
+    *   **Duration:** 10ns per compound.
+    *   **Analysis:** Calculate RMSD of the ligand and, critically, the **distance stability** between the Warhead and Cys12. If the ligand drifts away from the cysteine, it is a false positive.
+    *   *Note:* We are simulating the *pre-reactive* state. Simulating the actual bond formation requires QM/MM, which is out of budget.
+
+### 5. Compute Requirements & Budget Optimization
+
+| Step | Tool | Compute Type | Specs | Rationale |
+| :--- | :--- | :--- | :--- | :--- |
+| **Prep** | `rdkit`, `pdbfixer` | CPU | e2-standard-4 | Low intensity, single-threaded mostly. |
+| **Docking** | `gnina` | GPU | **Spot** L4 or T4 | GNINA CNN inference is heavily GPU dependent. T4 is cost-effective for 50k ligands. |
+| **MD** | `gromacs` | GPU | **Spot** L4 | GROMACS requires GPU for PME offloading to finish 10ns in reasonable time (<2 hrs). |
+
+---
+
+### Proposed Agent Definitions
+
+Based on this rigorous workflow, I propose the following Agents for the Blueprint:
+
+#### Agent 1: `CheminformaticsSpecialist`
+*   **Role:** Data curation and library preparation.
+*   **Skills:** `rdkit_substructure_search`, `rdkit_admet_filter`, `rdkit_conformer_generation`.
+*   **Task:** Query ChEMBL, filter for acrylamide warheads, generate 3D conformers (ETKDGv3), save to GCS.
+
+#### Agent 2: `StructuralBiologist`
+*   **Role:** Receptor preparation and docking grid definition.
+*   **Skills:** `pdbfixer_prepare`, `rdkit_calculate_center_of_mass` (to find Cys12).
+*   **Task:** Download 6OIM, strip AMG-510, retain GDP/Mg, protonate, define autobox around Cys12.
+
+#### Agent 3: `DockingSpecialist`
+*   **Role:** High-throughput virtual screening.
+*   **Skills:** `gnina_docking`, `python_distance_calculation` (custom script for Warhead-Cys12 distance).
+*   **Task:** Run GNINA batch jobs on Cloud Batch (GPU), filter results by distance (<4Å), rank by CNN score.
+
+#### Agent 4: `DynamicsEngineer`
+*   **Role:** Validation via simulation.
+*   **Skills:** `gromacs_topology_gen`, `gromacs_md_run`, `gromacs_analysis`.
+*   **Task:** Run 10ns MD on top 10 hits, report RMSD and distance stability.
+
+### Scientific Acceptance Criteria
+I will only approve this plan if the following are implemented:
+1.  **GDP Retention:** The receptor prep MUST NOT strip the GDP cofactor.
+2.  **Distance Constraint:** The pipeline must discard "good scoring" hits where the warhead is too far from Cys12.
+3.  **Spot VM Usage:** To stay under $500, all GPU workloads must use Spot instances.
+
+Does this align with the board's expectations?
+
+[PROPOSAL R2] gcp_architect (INSTRUCTION):
+Here is the architectural design for the KRAS G12C screening pipeline, adhering to the **Cloud Batch** and **Spot VM** constraints.
+
+### Architectural Decisions
+
+**1. Orchestration Strategy (Cloud Workflows)**
+We will use **Cloud Workflows** as the state engine. It is serverless, low-cost, and integrates natively with Cloud Batch connectors.
+*   **Flow:**
+    1.  **Prep Step:** Trigger Cloud Batch (CPU) to download ChEMBL data and prep ligands (RDKit/PDBFixer).
+    2.  **Docking Step:** Trigger Cloud Batch (GPU - T4) to run `gnina` across the dataset (sharded).
+    3.  **Selection Step:** Trigger a lightweight Batch job (or inline Python in Workflows if payload is small, but Batch is safer for 50k rows) to parse logs, sort by CNN score, and write the top 10 IDs to a JSON file in GCS.
+    4.  **MD Step:** Trigger Cloud Batch (GPU - L4) for the top 10 candidates using `gromacs`.
+    5.  **Ingest Step:** Trigger a BigQuery Load Job to ingest the final summary CSV/JSONL from GCS.
+
+**2. Intermediate Storage (GCS)**
+We will use a standard GCS bucket with a directory structure to segregate pipeline stages. This ensures data locality and easy debugging.
+*   `gs://meta-agent-biotech-data/raw/`: ChEMBL downloads.
+*   `gs://meta-agent-biotech-data/prep/`: `.pdbqt` files (inputs for docking).
+*   `gs://meta-agent-biotech-data/docking_results/`: `.sdf` output from Gnina and log files.
+*   `gs://meta-agent-biotech-data/md_trajectories/`: `.xtc` and `.tpr` files for the top 10.
+
+**3. Loading to BigQuery**
+Do **not** stream results row-by-row (inefficient for batch jobs).
+*   **Method:** The Docking and MD Batch jobs should write a summary `results.jsonl` file to GCS as their final step.
+*   **Action:** Use the `googleapis.bigquery.v2.jobs.insert` connector in Cloud Workflows to load this JSONL file into a pre-defined BigQuery table. This is free (loading data from GCS is free) and atomic.
+
+**4. Instance Recommendations (Spot VMs)**
+
+*   **Docking (Gnina):**
+    *   **Recommendation:** `n1-standard-4` + **1x NVIDIA T4**.
+    *   **Rationale:** Gnina uses a CNN for scoring. T4s are the most cost-effective inference GPU on GCP (~$0.11/hr Spot). A100 is massive overkill; CPU is too slow for 50k compounds.
+    *   **Sharding:** Use Cloud Batch "Array Jobs" to split the 50k compounds into ~50 tasks (1k compounds per task) to parallelize execution.
+
+*   **Molecular Dynamics (Gromacs):**
+    *   **Recommendation:** `g2-standard-8` + **1x NVIDIA L4**.
+    *   **Rationale:** MD is compute-bound. The L4 (Ada Lovelace) offers significantly better performance per dollar for single-precision float calculations (common in MD) compared to the T4. Since we only have 10 runs, the cost impact is negligible (<$5 total), but the speedup is valuable.
+
+---
+
+### Proposed Blueprint Update
+
+I am updating the `infrastructure` and `workflow` sections to reflect these decisions.
+
+```yaml
+api_version: meta-agent.biotech/v1alpha1
+kind: SystemBlueprint
+metadata:
+  name: kras-g12c-screening-arch
+  version: 1.0.1
+  description: Infrastructure design for KRAS G12C screening using Cloud Batch (Spot T4/L4) and BigQuery.
+  created_by: cloud_architect
+  created_at: '2026-02-17T13:45:00.000000Z'
+agents: [] # Agents defined by other board members
+workflow:
+  type: sequential_pipeline
+  orchestration: cloud_workflows
+  steps:
+    - name: ligand_prep
+      tool: rdkit
+      compute: cloud_batch_cpu
+      description: Download ChEMBL library and convert to PDBQT.
+    - name: molecular_docking
+      tool: gnina
+      compute: cloud_batch_gpu_t4
+      description: Dock 50k compounds using CNN scoring. Sharded execution.
+    - name: hit_selection
+      tool: python_script
+      compute: cloud_batch_cpu
+      description: Parse docking logs, select top 10 by CNN score.
+    - name: molecular_dynamics
+      tool: gromacs
+      compute: cloud_batch_gpu_l4
+      description: Run short MD simulation on top 10 hits.
+    - name: result_ingestion
+      tool: bq_load_job
+      compute: bigquery
+      description: Load summary metrics into BigQuery for analysis.
+infrastructure:
+  project_id: meta-agent-biotech
+  region: us-central1
+  resources:
+    - type: storage_bucket
+      name: meta-agent-biotech-data
+      location: us-central1
+      lifecycle_rule:
+        action: Delete
+        age: 30 # Clean up intermediate files after 30 days to save costs
+    
+    - type: bigquery_dataset
+      name: kras_screening_results
+      location: us-central1
+      
+    - type: cloud_batch_job_def
+      name: batch-docking-gnina
+      machine_type: n1-standard-4
+      accelerator:
+        type: nvidia-tesla-t4
+        count: 1
+      provisioning_model: SPOT
+      boot_disk_size_gb: 50
+      
+    - type: cloud_batch_job_def
+      name: batch-md-gromacs
+      machine_type: g2-standard-8
+      accelerator:
+        type: nvidia-l4
+        count: 1
+      provisioning_model: SPOT
+      boot_disk_size_gb: 100 # MD produces large trajectory files
+
+budget:
+  estimated_monthly_usd: 150.00
+  breakdown:
+    compute: 120.00 # Mostly Spot T4s for docking
+    storage: 10.00
+    ai_api: 20.00 # Gemini calls for agent logic
+    networking: 0.00 # Single region
+  decided_by: cloud_architect
+  rationale: 'Using Spot T4s for bulk docking drastically reduces cost. L4s used only for top 10 MD runs.'
+```
+
+[CRITIQUE R3] compliance_officer (CHALLENGE):
+As the Compliance Officer, I have reviewed the current blueprint and the Manager's challenge. While the absence of PHI simplifies the regulatory landscape (no HIPAA/GDPR-PII requirements), the proprietary nature of novel KRAS G12C inhibitors necessitates high-integrity controls to protect Intellectual Property (IP) and ensure GxP-readiness for future regulatory submissions.
+
+### 1. Data Classification
+
+| Data Component | Classification | Description |
+| :--- | :--- | :--- |
+| **ChEMBL Compound Library** | `Public` | Open-source chemical database. |
+| **PDB Structure (6OIM)** | `Public` | Open-source protein structure. |
+| **Docking Scores/ML Results** | `Research-Internal` | Proprietary screening data and lead identification. |
+| **MD Trajectories/Coordinates** | `Research-Internal` | High-value simulation data for lead validation. |
+| **Workflow Audit Logs** | `Internal` | Traceability of who ran what and when. |
+
+---
+
+### 2. Compliance Checklist
+
+| Requirement | Status | Compliance Officer Note |
+| :--- | :--- | :--- |
+| **PHI/PII Classification** | **PASS** | Explicitly excluded per project constraints. |
+| **Audit Logging** | **FAIL** | Cloud Audit Logs (Data Access) are not explicitly enabled for GCS/BigQuery. |
+| **License Verification** | **FAIL** | No step included to verify ChEMBL (CC BY-SA 3.0) or PDB usage terms. |
+| **Data Residency** | **PASS** | Locked to `us-central1`. |
+| **Encryption at Rest** | **PASS** | CMEK proposed by Manager (must be added to resource definitions). |
+| **Encryption in Transit** | **PASS** | Default GCP TLS 1.2+ is sufficient. |
+| **Exfiltration Protection** | **FAIL** | VPC-SC is missing; Private Google Access does not prevent data exfiltration. |
+
+---
+
+### 3. Required Security Controls
+
+To meet the "Last Line of Defense" standard, the following controls **must** be implemented:
+
+*   **IAM (Identity & Access Management):**
+    *   Each agent (e.g., `DockingSpecialist`) must use a **dedicated Service Account** with the `roles/storage.objectViewer` on input buckets and `roles/storage.objectCreator` on output buckets only.
+    *   The `ResultsArchivist` requires `roles/bigquery.dataEditor` but no delete permissions.
+*   **VPC Service Controls (VPC-SC):**
+    *   **MANDATORY:** Even without PHI, VPC-SC is required to protect the `Research-Internal` IP. Without it, a compromised service account or a malicious actor could copy the screening results to an external GCS bucket.
+    *   *Justification:* Virtual screening results for KRAS G12C are high-value targets for corporate espionage.
+*   **Encryption (CMEK):**
+    *   Cloud KMS keys must be used for the GCS buckets and the BigQuery dataset.
+*   **Audit Logging:**
+    *   Enable **Cloud Audit Logs (Data Access)** for `storage.googleapis.com` and `bigquery.googleapis.com` to ensure a "Chain of Custody" for the screening results.
+
+---
+
+### 🚩 COMPLIANCE FLAGS
+
+1.  **CRITICAL: Missing Audit Logging for Regulatory Workflows.**
+    The blueprint lacks a configuration to capture *who* accessed the docking results. For life sciences, traceability of the "In Silico" pipeline is required if these results are used in future IND (Investigational New Drug) filings.
+2.  **MAJOR: Missing License Verification.**
+    The pipeline uses ChEMBL. The `CheminformaticsSpecialist` must include a pre-flight check to log the version and license of the dataset used to ensure legal compliance.
+3.  **MAJOR: Lack of VPC-SC.**
+    I am rejecting the Manager's suggestion to skip VPC-SC. Private Google Access only ensures traffic stays on the Google network; it does **not** prevent an authorized user from sending data to a bucket in a different, unauthorized project. For proprietary research, a Service Perimeter is the only way to prevent exfiltration.
+
+### Recommendation for Manager:
+I will approve the blueprint **ONLY** if:
+1.  A **VPC-SC Perimeter** is added around the project.
+2.  **Cloud Audit Logs** are enabled for the GCS and BigQuery services.
+3.  The `ResultsArchivist` is tasked with logging the **ChEMBL version and license** into the BigQuery metadata table.
+
+[CRITIQUE R3] budget_controller (CHALLENGE):
+As the Budget Controller, I **object** to the current proposal. While you have switched to T4 GPUs, you are still being inefficient with high-cost resources. Being "under budget" is not an excuse for waste.
+
+### Objections & Required Changes
+1.  **Single-Stage Docking Waste:** Running `gnina` (GPU-accelerated ML scoring) on 50,000 compounds is financially irresponsible. At ~1 minute per compound, that is ~833 GPU hours. Even on Spot T4s, this is ~$100. You must implement **Two-Stage Docking**: Use `smina` or `autodock-vina` on cheap Spot CPU instances to filter the top 1,000-5,000 compounds, then run `gnina` only on those.
+2.  **Model Over-Provisioning:** You are using `gemini-3-pro-preview` for the `ResultsArchivist` and `CheminformaticsSpecialist`. These are deterministic, programmatic tasks. You MUST use `gemini-3-flash-preview` for these agents to reduce token costs by ~90%.
+3.  **Missing Budget Alerts:** The blueprint lacks a programmatic cost ceiling. We need a Pub/Sub trigger on the budget to kill active Cloud Batch jobs if the $500 limit is approached.
+
+### 1. Cost Estimate: $112.45 / month
+*Based on the optimized "Two-Stage" workflow.*
+
+| Component | Quantity | Unit Cost (Spot) | Total |
+| :--- | :--- | :--- | :--- |
+| **Stage 1: CPU Docking (Smina)** | 50k compounds (416 hrs) | $0.012/vCPU-hr | $5.00 |
+| **Stage 2: GPU Rescoring (GNINA)** | 2k compounds (33 hrs) | $0.12/T4-hr | $3.96 |
+| **Stage 3: MD (GROMACS)** | 10 runs (12 hrs) | $0.12/T4-hr | $1.44 |
+| **Agent Reasoning (Gemini)** | 500 invocations/mo | Mixed Pro/Flash | $2.05 |
+| **Storage & BigQuery** | 50GB GCS / 10GB BQ | Standard/Active | $100.00* |
+
+*\*Note: Storage includes a $100 buffer for high-frequency I/O and egress during ChEMBL ingestion.*
+
+### 2. Cost Optimization Recommendations
+*   **Recommendation 1 (MANDATORY):** Implement a "Fail-Fast" filter in the `CheminformaticsSpecialist`. If a compound fails basic RDKit Lipinski filters, do not even write it to GCS. This reduces I/O costs.
+*   **Recommendation 2:** Use `Preemptible` (Spot) instances for the GROMACS runs. Since GROMACS supports checkpointing, a preemption only costs us a few minutes of compute rather than the whole run.
+
+### 3. Monthly Cost Breakdown
+*   **Compute (Cloud Batch/Run):** $10.40 (Assumes 100% Spot VM usage)
+*   **Storage (GCS/BigQuery):** $100.00 (Includes data transfer and retention)
+*   **AI/ML API (Gemini):** $2.05 (Assumes Flash for 3/5 agents)
+*   **Total:** **$112.45**
+
+**Manager, I will not approve the $220 estimate.** By implementing two-stage docking and switching simple agents to Flash, we can cut your proposed spend by 48% while maintaining the same scientific rigor. Update the blueprint to reflect these efficiencies.
+
+[CRITIQUE R3] computational_chemist (CHALLENGE):
+I am the **Computational Chemist**. I have reviewed the proposal and the Manager's questions.
+
+I have **significant scientific and budgetary concerns** regarding the current plan. While the hardware choice for MD is acceptable, the docking strategy and the handling of "covalent" physics are scientifically flawed and financially risky.
+
+### 1. Critique of T4 GPUs for MD (DynamicsEngineer)
+**Verdict: APPROVED, with caveats.**
+*   **Performance:** A Tesla T4 is sufficient for small-to-medium systems like KRAS (~20kDa). For a 10ns simulation, you can expect reasonable throughput (likely 20-50 ns/day depending on system size and parameters).
+*   **Cost:** This is the correct decision for a $500 budget. Using A100s for such short, simple simulations would be a waste of funds.
+*   **Scientific Caveat:** Ensure the `DynamicsEngineer` uses **mixed precision** in GROMACS (standard practice) to maximize T4 throughput.
+
+### 2. Critique of "Full GNINA" Docking Strategy
+**Verdict: REJECTED. Revert to Two-Stage (Vina -> GNINA).**
+You asked if skipping the two-stage approach is scientifically preferable. While GNINA (CNN) is more accurate than Vina (empirical), running full GNINA docking on 50,000 compounds is **financially reckless** and computationally inefficient for a raw library screen.
+
+*   **The Math:**
+    *   GNINA Docking (CNN-based optimization): ~1–2 minutes per ligand on T4.
+    *   50,000 ligands × 1.5 min = 75,000 minutes ≈ **1,250 GPU-hours**.
+    *   Cost: 1,250 hours × ~$0.35/hr (Spot T4) ≈ **$437.50**.
+    *   **Result:** This single step consumes nearly 90% of your $500 monthly budget, leaving nothing for MD, storage, or retries.
+*   **Recommendation:** Use **AutoDock Vina** (CPU-based, extremely cheap) to screen the 50k compounds. Filter for the top 1,000–2,000 based on binding affinity and warhead distance, *then* run GNINA (Rescoring or Refinement) on that subset. This reduces GPU cost to <$20.
+
+### 3. CRITICAL SCIENTIFIC FLAWS (Must Fix)
+
+**A. The "Covalent" MD Illusion**
+The current `DynamicsEngineer` description implies running standard MD on the docked poses.
+*   **The Problem:** Standard GROMACS topology generation (e.g., via `ligpargen` or `acpype`) treats the ligand and protein as separate non-bonded entities. If you run MD on a "covalent inhibitor" without explicitly defining the covalent bond in the topology (patching the Cys12 residue), the ligand will likely **detach and float away** because the simulation is modeling non-covalent equilibrium.
+*   **The Fix:** The `DynamicsEngineer` must include a step to **generate a covalent topology**. This involves modifying the Cys12 residue in the forcefield to a modified residue (e.g., CYX-ligand) or using a specific forcefield patch. If this is too complex for the automated pipeline, the simulation is scientifically invalid for proving covalent stability.
+
+**B. Missing Ligand Preparation**
+The `CheminformaticsSpecialist` filters ChEMBL but the blueprint does not explicitly state **3D Conformer Generation** or **Protonation at pH 7.4**.
+*   **The Problem:** ChEMBL data is often 2D (SMILES). Docking 2D structures or wrong protonation states (e.g., wrong charge on the warhead) into a 3D protein structure will yield garbage results.
+*   **The Fix:** Explicitly add `rdkit.Chem.AllChem.EmbedMolecule` (ETKDG) and protonation handling to the `CheminformaticsSpecialist` instructions.
+
+### Proposed Blueprint Adjustments
+
+I propose the following modifications to the Agent definitions to ensure scientific rigor and budget safety.
+
+**1. Modify `CheminformaticsSpecialist`**
+*   **Add Skill:** Generate 3D conformers (ETKDGv3) and assign partial charges.
+*   **Add Skill:** Filter for specific covalent warheads (acrylamide) *before* expensive 3D generation.
+
+**2. Modify `DockingSpecialist` (Restore Two-Stage)**
+*   **Step A (Vina):** Screen 50k compounds. Filter: Affinity < -7.0 kcal/mol AND Warhead-Cys12 distance < 4.0 Å.
+*   **Step B (GNINA):** Rescore/Refine top 500 hits using CNN scoring.
+
+**3. Modify `DynamicsEngineer`**
+*   **Constraint:** If fully automated covalent topology patching is not feasible, change the objective to "Unbiased MD to assess *pre-reaction* stability" (non-covalent residence time), which is a valid proxy for covalent efficiency. If we claim "covalent validation," we *must* patch the topology.
+
+**Do you accept these scientific corrections?**
+
+[SYNTHESIS R4] gcp_architect (INSTRUCTION):
+Here is the review and the finalized SystemBlueprint.
+
+### Architect's Review
+
+As the GCP Cloud Architect, I have reviewed the proposal against the project constraints and GCP best practices.
+
+**1. Cloud Batch Handoff (Vina -> GNINA)**
+*   **Verdict:** **Approved.**
+*   **Analysis:** Using Cloud Batch for both steps with GCS as the intermediate storage is the correct pattern. Cloud Workflows will simply pass the GCS URI of the filtered SDF file (top 2000 hits) from the `ScreeningSpecialist` to the `DockingSpecialist`. This avoids moving heavy data through the orchestrator.
+*   **Optimization:** Ensure the `ScreeningSpecialist` writes the output as a sharded SDF or multiple files if the `DockingSpecialist` uses `parallelism` in Cloud Batch (Array Jobs). For 2000 compounds, a single file is acceptable, but sharding allows for faster parallel loading.
+
+**2. VPC Service Controls (VPC-SC)**
+*   **Verdict:** **Feasible with adjustments.**
+*   **Analysis:** VPC-SC is supported for Cloud Run, Cloud Batch, GCS, and BigQuery. However, the `CheminformaticsSpecialist` needs to ingest data from ChEMBL.
+*   **Constraint Conflict:** The current blueprint sets `egress_policy: deny-all` for the `CheminformaticsSpecialist`. This will cause the agent to fail immediately when trying to fetch ChEMBL data.
+*   **Fix:** I am modifying the network policy for the first agent to allow egress to the public internet (via Cloud NAT if inside VPC) or simply removing the restriction for the ingestion step.
+
+**3. Instance Types (Spot T4 vs CPU)**
+*   **Verdict:** **Optimal.**
+*   **Analysis:**
+    *   **Vina (CPU):** `n2-standard-4` (or similar) Spot instances are perfect for CPU-bound Vina.
+    *   **GNINA (T4):** GNINA inference is effectively accelerated by T4s. A100s would be overkill (approx. 4x cost for <2x speedup on small molecule inference).
+    *   **GROMACS (T4):** For "short MD simulations" (e.g., 1-10ns) on small systems (KRAS + ligand), a single T4 is sufficient. The price-performance ratio of Spot T4s fits the $125 budget perfectly.
+
+**4. Compliance & Tooling Violations**
+*   **CRITICAL FIX:** The blueprint used `gemini-1.5-flash` for the Cheminformatics and Archivist agents. The tooling preferences explicitly state **"NEVER use gemini-1.5"**. I have upgraded these to `gemini-3-flash-preview`.
+
+---
+
+### Final SystemBlueprint
+
+```yaml
+api_version: meta-agent.biotech/v1alpha1
+kind: SystemBlueprint
+metadata:
+  name: kras-g12c-screening-pipeline
+  version: 1.1.0
+  description: Virtual screening pipeline for KRAS G12C covalent inhibitors using Two-Stage Docking (Vina -> GNINA) and MD validation.
+  session_id: ''
+  created_by: recruitment_board
+  created_at: '2026-02-17T13:45:00Z'
+  tags:
+  - cost-optimized
+  - gpu-accelerated
+  - vpc-sc-ready
+agents:
+- api_version: meta-agent.biotech/v1alpha1
+  kind: AgentBlueprint
+  name: CheminformaticsSpecialist
+  version: 1.1.0
+  description: Filters ChEMBL for covalent warheads and calculates ADMET properties.
+  status: approved
+  agent_config:
+    model: gemini-3-flash-preview
+    temperature: 0.2
+    max_output_tokens: 4096
+    system_instruction: Ensure filtering logic prioritizes acrylamide warheads suitable for Cys12 labeling.
+    decided_by: architect
+    rationale: Upgraded to Gemini 3 Flash for cost-effective reasoning.
+  skill_references:
+  - tool: rdkit
+  - tool: chembl_downloader
+  runtime:
+    type: cloud_run_job
+    execution_pattern: SYNC
+    compute:
+      cpu: '2'
+      memory: 4Gi
+      timeout_seconds: 3600
+      max_retries: 2
+      spot_vm: false
+    scaling:
+      min_instances: 0
+      max_instances: 1
+      concurrency: 1
+    network:
+      egress_policy: allow-internet
+      decided_by: architect
+      rationale: Must access ChEMBL public database.
+  data_inputs:
+  - source: public-internet
+    format: sdf
+    description: ChEMBL compound database
+  data_outputs:
+  - destination: gcs
+    format: sdf
+    description: filtered_compounds.sdf
+- api_version: meta-agent.biotech/v1alpha1
+  kind: AgentBlueprint
+  name: StructuralBiologist
+  version: 1.0.0
+  description: Prepares the 6OIM receptor, retaining GDP/Mg and defining the docking grid around Cys12.
+  status: approved
+  agent_config:
+    model: gemini-3-flash-preview
+    temperature: 0.2
+    max_output_tokens: 4096
+    system_instruction: Use pdbfixer to clean structure 6OIM. Keep GDP and Mg2+.
+    decided_by: manager
+  skill_references:
+  - tool: pdbfixer
+  runtime:
+    type: cloud_run_job
+    execution_pattern: SYNC
+    compute:
+      cpu: '2'
+      memory: 4Gi
+      timeout_seconds: 1800
+      max_retries: 2
+      spot_vm: false
+    scaling:
+      min_instances: 0
+      max_instances: 1
+    network:
+      egress_policy: deny-all
+  data_inputs:
+  - source: gcs
+    format: pdb
+    description: Raw PDB structure (or fetched via tool if not in GCS)
+  data_outputs:
+  - destination: gcs
+    format: pdbqt
+    description: receptor_prepared.pdbqt
+- api_version: meta-agent.biotech/v1alpha1
+  kind: AgentBlueprint
+  name: ScreeningSpecialist
+  version: 1.0.0
+  description: High-throughput coarse docking (AutoDock Vina) on 50k compounds.
+  status: approved
+  agent_config:
+    model: gemini-3-flash-preview
+    temperature: 0.2
+    max_output_tokens: 4096
+    system_instruction: Run Vina with exhaustiveness=8. Filter top 2000 by affinity.
+    decided_by: manager
+  skill_references:
+  - tool: autodock-vina
+  runtime:
+    type: cloud_batch
+    execution_pattern: ASYNC_BATCH
+    compute:
+      cpu: '4'
+      memory: 8Gi
+      timeout_seconds: 3600
+      max_retries: 2
+      spot_vm: true
+    scaling:
+      min_instances: 0
+      max_instances: 20
+    network:
+      egress_policy: deny
+
+[SYNTHESIS R4] claude_cross_checker (CHALLENGE):
+# CROSS-CHECK REVIEW: KRAS G12C Virtual Screening Pipeline
+
+## CRITICAL ISSUES
+
+### 1. DEPRECATED MODEL VERSIONS
+**Severity:** CRITICAL  
+**Area:** model_versions  
+**Finding:** Agents are using `gemini-1.5-flash`, which violates the MANDATORY tooling requirements.
+
+The tooling preferences explicitly state:
+> "Use `gemini-3-pro-preview` (Latest Gemini model with best reasoning capabilities). Alternatives: gemini-3-flash-preview. Note: Use Flash ONLY for cost-sensitive agents (linter, simple tasks). **NEVER use gemini-1.5 or gemini-2.0 — they are outdated.**"
+
+Yet the blueprint specifies:
+- CheminformaticsSpecialist: `model: gemini-1.5-flash`
+- ResultsArchivist: `model: gemini-1.5-flash`
+- StructuralBiologist: Missing model field entirely
+
+**Recommendation:** 
+- Update CheminformaticsSpecialist to `gemini-3-flash-preview` (cost-sensitive filtering task)
+- Update ResultsArchivist to `gemini-3-flash-preview` (simple data loading)
+- Add `model: gemini-3-flash-preview` to StructuralBiologist (receptor prep is straightforward)
+- Add rationale explaining these are lightweight orchestration tasks, not complex reasoning
+
+---
+
+### 2. MISSING AGENT MODEL FIELD
+**Severity:** HIGH  
+**Area:** model_versions  
+**Finding:** StructuralBiologist agent has no `model` field in `agent_config`, yet has `temperature` and `max_output_tokens` configured. This suggests an LLM is intended but the model is unspecified.
+
+**Recommendation:** Add `model: gemini-3-flash-preview` to StructuralBiologist.agent_config
+
+---
+
+### 3. MISSING AGENT MODEL FIELDS (NON-LLM AGENTS)
+**Severity:** MEDIUM  
+**Area:** model_versions  
+**Finding:** DockingSpecialist, DynamicsEngineer, and ScreeningSpecialist have `temperature` and `max_output_tokens` but no `model` field. These appear to be computational tool orchestrators, not LLM agents, but the config suggests LLM usage.
+
+**Recommendation:** Either:
+- Add `model: gemini-3-flash-preview` if these agents use LLMs for orchestration
+- OR remove `temperature` and `max_output_tokens` if these are pure computational agents
+- Clarify in system_instruction whether agents call LLMs for task planning or are script-based
+
+---
+
+## HIGH SEVERITY ISSUES
+
+### 4. EGRESS POLICY TOO RESTRICTIVE
+**Severity:** HIGH  
+**Area:** architecture | security  
+**Finding:** All agents have `egress_policy: deny-all`, yet they need to:
+- Download ChEMBL data (external API)
+- Access PDB structure 6OIM (external rcsb.org)
+- Pull container images from Container Registry/Artifact Registry
+- Write to GCS and BigQuery
+- Communicate agent-to-agent (A2A protocol)
+
+`deny-all` will block ALL of these operations.
+
+**Recommendation:**
+- Change to `egress_policy: private-ranges-only` with VPC-SC (already in compliance controls)
+- OR use `allow-all` with Cloud NAT + Cloud Armor for external data sources
+- Explicitly allow egress to:
+  - GCS buckets (private)
+  - BigQuery (private)
+  - Artifact Registry (private)
+  - ChEMBL API (external, needs NAT or Cloud Endpoints)
+  - PDB FTP (external, needs NAT)
+
+---
+
+### 5. INSUFFICIENT TIMEOUT FOR MD SIMULATIONS
+**Severity:** HIGH  
+**Area:** architecture | cost  
+**Finding:** DynamicsEngineer has `timeout_seconds: 1800` (30 minutes) for GROMACS MD on 10 compounds. Even "short" MD for pre-reactive complex stability typically requires:
+- System preparation: 5-10 min
+- Energy minimization: 2-5 min per compound
+- Equilibration: 5-10 min per compound
+- Production run: 10-50 min per compound (depends on length)
+
+For 10 compounds in parallel, 30 minutes is plausible IF runs are very short (<5 ns) and embarrassingly parallel. But if sequential, this will timeout.
+
+**Recommendation:**
+- Increase `timeout_seconds: 7200` (2 hours) to allow 10-20 min per compound
+- OR clarify in description: "10 x 1ns MD runs in parallel"
+- Add scaling strategy: process compounds in batches of N on separate VMs
+
+---
+
+### 6. COST ESTIMATE LACKS BREAKDOWN
+**Severity:** HIGH  
+**Area:** cost  
+**Finding:** Budget shows `estimated_monthly_usd: 125.0` but breakdown is all zeros:
+```yaml
+breakdown:
+  compute: 0.0
+  storage: 0.0
+  ai_api: 0.0
+  networking: 0.0
+```
+
+This makes the estimate unverifiable. For a pipeline with:
+- 50k compound screening (Vina CPU)
+- 2k compound rescoring (GNINA GPU)
+- 10 compound MD (GROMACS GPU)
+- T4 spot instances
+- BigQuery storage
+
+The actual costs would include:
+- Cloud Batch compute hours (CPU + GPU spot)
+- GCS storage (likely minimal <$5/mo)
+- BigQuery storage + queries
+- Networking egress (ChEMBL/PDB downloads)
+- Gemini API calls (minimal if using flash)
+
+**Recommendation:**
+- Provide itemized breakdown:
+  - Compute: $XX (YY GPU-hours T4 spot @ $0.11/hr + ZZ CPU-hours)
+  - Storage: $XX (AAA GB GCS + BBB GB BigQuery)
+  - AI API: $XX (gemini-3-flash-preview calls)
+  - Networking: $XX (ChEMBL + PDB downloads)
+- Justify $125 estimate with workload assumptions (e.g., "assumes 1 run/month, 20 GPU-hours, 50 CPU-hours")
+
+---
+
+### 7. MISSING DATA SCHEMA DEFINITIONS
+**Severity:** HIGH  
+**Area:** architecture | data_flow  
+**Finding:** All agents have empty `data_inputs`, `data_outputs`, and `interface.inputs/outputs`. This makes the data flow impossible to validate. Critical missing schemas:
+- CheminformaticsSpecialist output: filtered compound list (SMILES? SDF? Parquet?)
+- StructuralBiologist output: prepared receptor (PDBQT? PDB?)
+- ScreeningSpecialist output: docking scores for 2000 compounds
+- DockingSpecialist output: GNINA scores for top 2000
+- DynamicsEngineer output: MD trajectory metrics
+- ResultsArchivist input: what format to load into BigQuery?
+
+**Recommendation:**
+- Define explicit data contracts for each agent:
+  ```yaml
+  data_outputs:
+    - name: filtered_compounds
+      type: parquet
+      schema: gs://path/to/schema.json
+      location: gs://{bucket}/chembl_filtered/
+  ```
+- Add validation: CheminformaticsSpecialist must output ≥50k rows before ScreeningSpecialist runs
+- Specify BigQuery table schema for final results
+
+---
+
+## MEDIUM SEVERITY ISSUES
+
+### 8. WORKFLOW DEPENDENCY TYPE MISMATCH
+**Severity:** MEDIUM  
+**Area:** architecture | data_flow  
+**Finding:** In workflow.steps, `step_3_docking.depends_on` is a scalar string:
+```yaml
+depends_on: step_2b_vina
+```
+While all other steps use a list:
+```yaml
+depends_on:
+  - step_1_filter
+```
+
+This inconsistency could cause orchestration errors in Cloud Workflows, which expects uniform types.
+
+**Recommendation:** Change to `depends_on: [step_2b_vina]` for consistency.
+
+---
+
+### 9. MISSING COVALENT DOCKING PARAMETERS
+**Severity:** MEDIUM  
+**Area:** scientific_validity  
+**Finding:** For KRAS G12C covalent inhibitors targeting Cys12, neither ScreeningSpecialist (Vina) nor DockingSpecialist (GNINA) descriptions mention:
+- Covalent docking mode (required for warhead-Cys12 bond formation)
+- Flexible residues (Cys12 should be flexible)
+- Warhead distance constraints (acrylamide C=C must be <4Å from Cys12 SG)
+
+Standard AutoDock Vina does NOT support covalent docking natively. GNINA has limited covalent support.
+
+**Recommendation:**
+- Use AutoDock4 (supports covalent docking with `flexres` keyword) instead of Vina for ScreeningSpecialist
+- OR use Vina with manual distance restraints in config files
+- For GNINA: add `--covalent` flag if available in version, or post-filter by Cys12 distance
+- Update descriptions to specify: "Vina with Cys12 flexible residue + distance restraints <4Å"
+
+---
+
+### 10. T4 GPU INSUFFICIENT FOR GROMACS PERFORMANCE
+**Severity:** MEDIUM  
+**Area:** architecture | cost  
+**Finding:** DynamicsEngineer uses `nvidia-tesla-t4` (2560 CUDA cores, 16GB RAM, 8.1 TFLOPS FP32). For GROMACS MD:
+- T4 is adequate for small systems (<50k atoms)
+- KRAS G12C + ligand + solvent ≈ 30-40k atoms (acceptable)
+- BUT: T4 is 3-5x slower than A100 for MD
+
+The patch history shows T4 was chosen purely for cost ("to satisfy Budget Controller"), not performance.
+
+**Recommendation:**
+- If timeline is critical, upgrade to `nvidia-tesla-v100` (better price/performance for MD)
+- OR keep T4 but increase timeout and set expectations: "10 x 1ns runs @ 10-15 ns/day on T4"
+- Document performance trade-off in rationale
+
+---
+
+### 11. MISSING CHEMBL VERSION AND ACCESS METHOD
+**Severity:** MEDIUM  
+**Area:** architecture | data_flow  
+**Finding:** CheminformaticsSpecialist description says "filters ChEMBL" but doesn't specify:
+- ChEMBL version (current is v33, released 2024)
+- Access method (REST API? PostgreSQL dump? Pre-downloaded?)
+- Filter criteria (molecular weight? LogP? PAINS?)
+
+**Recommendation:**
+- Specify: "Downloads ChEMBL v33 via FTP, filters for MW 200-600, cLogP <5, acrylamide warheads, no PAINS"
+- Add env_vars: `CHEMBL_VERSION: "33"`, `CHEMBL_SOURCE: "ftp://ftp.ebi.ac.uk/pub/databases/chembl/ChEMBLdb/releases/chembl_33/"`
+- Document egress requirement for external FTP
+
+---
+
+### 12. MISSING ACCEPTANCE CRITERIA
+**Severity:** MEDIUM  
+**Area:** architecture  
+**Finding:** `acceptance_criteria: []` is empty. For a virtual screening pipeline, success criteria should include:
+- Number of compounds filtered (target: ≥50k)
+- Docking success rate (≥95% of compounds successfully docked)
+- Top 10 compounds have GNINA score < -8 kcal/mol
+- MD simulations converge (RMSD plateau)
+- Results loaded to BigQuery within 24 hours
+
+**Recommendation:** Add measurable acceptance criteria with pass/fail thresholds.
+
+---
+
+## LOW SEVERITY ISSUES
+
+### 13. MISSING RETRYABLE ERRORS
+**Severity:** LOW  
+**Area:** architecture  
+**Finding:** All agents have `retryable_errors: []`. For Cloud Batch jobs, common transient errors include:
+- Spot VM preemption (should retry)
+- Network timeouts (should retry)
+- OOM errors (should NOT retry, needs resource adjustment)
+
+**Recommendation:**
+- Add `retryable_errors: [SPOT_PREEMPTION, NETWORK_TIMEOUT, DEADLINE_EXCEEDED]`
+- Exclude memory errors from retry
+
+---
+
+### 14. EXCESSIVE MAX_INSTANCES
+**Severity:** LOW  
+**Area:** cost  
+**Finding:** All agents have `max_instances: 10`. For a pipeline processing:
+- 50k compounds → may need parallelism
+- But top 10 MD → max 10 instances makes sense
+- StructuralBiologist (single receptor prep) → doesn't need 10 instances
+
+**Recommendation:**
+- Reduce StructuralBiologist to `max_instances: 1` (single-task)
+- Reduce ResultsArchivist to `max_instances: 1` (single load job)
+- Keep 10 for ScreeningSpecialist, DockingSpecialist, DynamicsEngineer
+
+---
+
+### 15. MISSING MONITORING/LOGGING CONFIG
+**Severity:** LOW  
+**Area:** architecture  
+**Finding:** No mention of Cloud Logging, Cloud Monitoring, or alerting. For a production pipeline, need:
+- Job failure alerts
+- Cost anomaly detection
+- Data validation metrics (e.g., "only 100 compounds passed filter" alert)
+
+**Recommendation:** Add infrastructure.resources for Logging/Monitoring sinks and alert policies.
+
+---
+
+## GCP SERVICE VALIDATION
+
+### Valid Services ✓
+- **Cloud Batch** ✓ (Correct for HPC workloads, supports GPU + Spot)
+- **Cloud Run Job** ✓ (Correct for lightweight tasks)
+- **Cloud Workflows** ✓ (Native DAG orchestrator)
+- **BigQuery** ✓ (Correct for results storage)
+- **GCS** ✓ (Implied for intermediate storage)
+
+### GPU Types ✓
+- **nvidia-tesla-t4** ✓ (Valid GPU type for Cloud Batch, available in us-central1)
+
+### Regions ✓
+- **us-central1** ✓ (Supports T4 GPUs and all specified services)
+
+---
+
+## COMPLIANCE & SECURITY ASSESSMENT
+
+### Strengths ✓
+- IAM Least Privilege ✓
+- VPC Service Controls ✓
+- CMEK Encryption ✓
+- Cloud Audit Logs ✓
+- Data classification: research-internal ✓
+- Spot VMs for cost optimization ✓
+
+### Gaps
+- **Egress policy too restrictive** (blocks required external access)
+- **No Secret Manager** for ChEMBL API keys, PDB credentials
+- **No DLP scanning** (not required for research-internal, but best practice)
+- **No container image signing/vulnerability scanning** (Binary Authorization)
+
+**Recommendation:**
+- Add `controls: [Container_Vulnerability_Scanning, Secret_Manager]`
+- Relax egress policy as noted in Issue #4
+
+---
+
+## DATA FLOW VALIDATION
+
+**BROKEN:** Empty input/output schemas make validation impossible.
+
+Expected flow:
+1. CheminformaticsSpecialist → filtered_compounds.parquet
+2. StructuralBiologist → receptor.pdbqt
+3. ScreeningSpecialist ← (1, 2) → vina_scores.parquet (top 2000)
+4. DockingSpecialist ← (3) → gnina_scores.parquet (rescored 2000)
+5. DynamicsEngineer ← (4) → md_metrics.parquet (top 10)
+6. ResultsArchivist ← (5) → BigQuery table
+
+**Current state:** All connections are undefined.
+
+**Recommendation:** See Issue #7.
+
+---
+
+## OVERALL ASSESSMENT
+
+### Summary of Findings
+- **CRITICAL:** 3 issues (outdated models, missing model configs, broken egress)
+- **HIGH:** 4 issues (timeout, cost breakdown, data schemas, network policy)
+- **MEDIUM:** 7 issues (workflow syntax, covalent docking, GPU choice, etc.)
+- **LOW:** 3 issues (retryable errors, scaling, monitoring)
+
+### Key Risks
+1. **Pipeline will not execute** due to egress policy blocking external data sources
+2. **Wrong model versions** violate mandatory tooling requirements
+3. **Cost estimate unverifiable** due to missing breakdown
+4. **Data contracts missing** — agents cannot communicate
+5. **Covalent docking not properly configured** — scientific validity at risk
+
+### Positive Aspects
+- Good two-stage docking strategy for cost optimization
+- Appropriate
+
+[VOTE R5] compliance_officer (REQUEST_FOR_VOTE):
+As the Compliance Officer, I have reviewed the final blueprint for the KRAS G12C screening pipeline. The transition to `research-internal` classification and the inclusion of VPC-SC and CMEK are critical for protecting intellectual property (IP) in a life sciences context.
+
+While the "no-phi-data" constraint simplifies the regulatory burden (no HIPAA/HITECH), the GxP (Good Research Practice) requirements still necessitate strict traceability.
+
+### 1. Data Classification
+| Data Category | Classification | Description |
+| :--- | :--- | :--- |
+| **Input Library** (ChEMBL) | **Public** | Open-source chemical database (CC BY-SA 3.0). |
+| **Target Structure** (PDB 6OIM) | **Public** | Open-source protein structure. |
+| **Screening Results** (Docking/MD) | **Research-Internal** | Proprietary lead compounds and binding affinity data. |
+| **Pipeline Metadata** (Logs/Audit) | **Internal** | System logs, execution history, and IAM activity. |
+
+### 2. Compliance Checklist
+| Requirement | Status | Notes |
+| :--- | :--- | :--- |
+| **PHI/PII Protection** | **PASS** | Explicitly excluded per project constraints. |
+| **Audit Logging** | **PASS** | Cloud Audit Logs enabled for all Batch and BigQuery operations. |
+| **License Verification** | **PASS** | ChEMBL (CC BY-SA 3.0) and PDB (Public Domain) verified for research use. |
+| **Data Residency** | **PASS** | All compute and storage pinned to `us-central1`. |
+| **Encryption at Rest** | **PASS** | CMEK (Customer Managed Encryption Keys) specified for GCS/BQ. |
+| **Encryption in Transit** | **PASS** | TLS 1.2+ enforced for all GCP API interactions. |
+| **VPC-SC Perimeter** | **PASS** | Included in controls to prevent data exfiltration. |
+
+### 3. Required Security Controls
+*   **IAM (Identity & Access Management):**
+    *   Each agent (e.g., `DockingSpecialist`) must run under a **unique Service Account** with the minimum permissions required (e.g., `roles/storage.objectViewer` for inputs, `roles/bigquery.dataEditor` for results).
+    *   No primitive `owner` or `editor` roles allowed.
+*   **VPC-Service Controls (VPC-SC):**
+    *   A service perimeter must encompass the `meta-agent-biotech` project.
+    *   **Mandatory:** The `CheminformaticsSpecialist` and `StructuralBiologist` require a **Cloud NAT** or **Service Perimeter Bridge** to access ChEMBL/PDB without exposing the entire VPC to the public internet.
+*   **Encryption:**
+    *   **CMEK:** Use Cloud KMS keys for the GCS buckets and BigQuery datasets.
+    *   **Transient Data:** Cloud Batch local SSDs must be encrypted using Google-managed keys (default) or CMEK.
+*   **Auditability:**
+    *   Enable **Data Access Logs** in Cloud Audit Logs for BigQuery to track who accessed the final candidate list.
+
+**Final Determination:** **APPROVED**. The blueprint meets the security and regulatory requirements for a non-PHI research pipeline. The use of Gemini 3 models and Cloud Batch with Spot VMs is compliant with the provided tooling and budget constraints.
+
+[VOTE R5] budget_controller (REQUEST_FOR_VOTE):
+I have reviewed the proposal for the KRAS G12C screening pipeline. While the transition to a two-stage docking strategy (Vina -> GNINA) and the use of T4 Spot VMs are significant improvements, I will **approve with conditions** to further tighten the fiscal footprint.
+
+The current estimate of **$125.00/month** is acceptable and well within the $500.00 cap, but we can optimize the "idle" and "overhead" costs associated with the auxiliary agents.
+
+### 1. Cost Estimate
+**Total Estimated Monthly Cost: $118.50**
+(Based on one full execution of the 50,000 compound pipeline per month)
+
+### 2. Monthly Cost Breakdown
+*   **Compute (Cloud Batch + Cloud Run): $104.00**
+    *   *ScreeningSpecialist (Vina):* ~$78.00 (50k compounds, ~800 core-hours on E2-Standard Spot).
+    *   *DockingSpecialist (GNINA):* ~$12.00 (2k compounds on T4 Spot).
+    *   *DynamicsEngineer (GROMACS):* ~$8.00 (10 candidates, 20 GPU-hours on T4 Spot).
+    *   *Cloud Run Agents:* ~$6.00 (Cheminformatics, Receptor Prep, Archivist).
+*   **Storage (GCS + BigQuery): $12.00**
+    *   Standard GCS storage for 50k ligands, protein structures, and MD trajectories.
+    *   BigQuery active storage for docking scores.
+*   **AI/ML API (Gemini 3 Flash): $2.50**
+    *   Estimated token usage for 6 agents using `gemini-3-flash-preview`.
+
+### 3. Cost Optimization Recommendations
+
+1.  **Downsize Cloud Run Agents:** The `CheminformaticsSpecialist` and `StructuralBiologist` are currently provisioned with 2 vCPU and 4GiB RAM. For RDKit filtering and PDBFixer, this is excessive. **Recommendation:** Reduce these to 1 vCPU and 2GiB RAM to cut Cloud Run costs by 50%.
+2.  **GCS Lifecycle Policy:** 50,000 docking results and MD trajectories generate significant "dark data." **Recommendation:** Implement a GCS Lifecycle rule to move all `.pdbqt` and `.trr` files to **Archive Storage** after 7 days. This reduces storage costs from $0.02/GB to $0.0012/GB.
+3.  **BigQuery Partitioning:** Ensure the results table in BigQuery is partitioned by `run_date`. This prevents full table scans during post-analysis, keeping query costs near zero.
+
+**Budget Controller Verdict:** **APPROVED**, provided the Cloud Run resource downscaling is implemented. The use of T4 Spot VMs ($0.11/hr) instead of A100s ($3.67/hr) has successfully avoided a $700+ bill for the MD phase alone.
+
+[VOTE R5] gcp_architect (REQUEST_FOR_VOTE):
+The architecture is sound and aligns perfectly with the "Simplest GCP Architecture" principle: utilizing Cloud Batch for the heavy HPC lifting (Vina/Gnina/Gromacs) and Cloud Run Jobs for lightweight orchestration steps. The move to T4 GPUs and a two-stage docking pipeline is an excellent cost-optimization strategy.
+
+However, I cannot sign off on the deployment because the **YAML configuration contradicts the Patch History** in two critical areas that will cause the pipeline to fail immediately.
+
+### Vote: **CONDITIONAL APPROVAL**
+
+You must apply the following fixes to the YAML before deployment:
+
+**1. Network Egress Policy (Critical Failure Risk)**
+*   **Issue:** The YAML currently lists `egress_policy: deny-all` for `CheminformaticsSpecialist` and `StructuralBiologist`.
+*   **Impact:** These agents cannot download the source data (ChEMBL DB) or the receptor (PDB 6OIM). The pipeline will fail at Step 1.
+*   **Fix:** Update YAML to match Patch #24 and #25.
+    ```yaml
+    # Agent: CheminformaticsSpecialist & StructuralBiologist
+    network:
+      egress_policy: allow-internet # Required for public dataset fetch
+    ```
+
+**2. MD Simulation Timeout (Reliability Risk)**
+*   **Issue:** The `DynamicsEngineer` agent (GROMACS) is configured with `timeout_seconds: 1800` (30 minutes) in the YAML.
+*   **Impact:** Molecular Dynamics, even short runs, often require equilibration steps (NVT/NPT) before production. 30 minutes is insufficient and risks terminating the job mid-simulation on Spot instances.
+*   **Fix:** Update YAML to match Patch #26.
+    ```yaml
+    # Agent: DynamicsEngineer
+    compute:
+      timeout_seconds: 7200 # 2 hours
+    ```
+
+**3. Architecture & Cost Validation (Approved)**
+*   **Compute:** Cloud Batch is correctly selected over GKE (avoids management overhead) and Cloud Run (avoids timeout limits for HPC).
+*   **GPU:** Nvidia T4 is the correct choice. A100s would be gross over-provisioning for screening ~2000 small molecules.
+*   **Data Flow:** Using GCS as the intermediate handover point (implied by the architecture) is correct. Ensure the `A2A` protocol passes **GCS URIs** (e.g., `gs://bucket/run_id/docking_output/`) and not raw file payloads.
+
+**Once the YAML is updated to reflect the Patch History, this is ready for deployment.**
+
+[VOTE R5] computational_chemist (REQUEST_FOR_VOTE):
+As the Computational Chemist on the Recruitment Board, I vote to **REQUEST CHANGES** based on a critical computational mismatch in the Molecular Dynamics configuration.
+
+### 1. Terminology Check: "Pre-reactive stability check"
+**Verdict: APPROVED.**
+This is the scientifically correct terminology. Since we are not performing QM/MM or using a specific covalent docking algorithm (like CovDock) that models the bond formation, we are essentially simulating the **non-covalent encounter complex**.
+*   **Scientific Rationale:** For a covalent inhibitor to work, the non-covalent affinity ($K_i$) must keep the warhead (electrophile) in close proximity to the nucleophile (Cys12) long enough for the reaction ($k_{inact}$) to occur. Validating that the ligand does not drift away or distort the pocket in the pre-reactive state is a valid screening filter.
+
+### 2. Compute Feasibility: 10ns MD on T4 with 2-hour Timeout
+**Verdict: REJECTED (Must Fix).**
+The proposed timeout is mathematically insufficient for the requested simulation length on the specified hardware.
+
+*   **The Math:**
+    *   **System Size:** KRAS (G12C) + Ligand + Solvation Box + Ions $\approx$ 45,000 - 60,000 atoms.
+    *   **Hardware:** 1x NVIDIA Tesla T4.
+    *   **GROMACS Performance:** On a T4, a system of this size typically achieves **20–40 ns/day** (depending on precision and integration steps).
+    *   **Time Required:** To simulate **10 ns**, you need roughly **6 to 12 hours** of wall-clock time.
+    *   **Current Constraint:** `timeout_seconds: 7200` (2 hours).
+
+**Consequence:** The Cloud Batch jobs will be terminated by the timeout controller before the simulation completes, resulting in wasted compute spend and zero results.
+
+### Required Changes
+Please implement **one** of the following fixes in the `DynamicsEngineer` agent blueprint:
+
+1.  **Option A (Recommended for Screening):** Reduce the simulation length to **1 ns**.
+    *   *Rationale:* 1 ns is sufficient to determine if a docked pose is grossly unstable (RMSD spike) or if the warhead drifts away from Cys12. This will fit comfortably within the 2-hour window on a T4.
+2.  **Option B (If 10ns is mandatory):** Increase `timeout_seconds` to **43200** (12 hours).
+    *   *Warning:* Long-running jobs on Spot VMs have a higher probability of preemption. You would need to enable checkpointing and restarts, which complicates the workflow.
+
+**Minor Note on ScreeningSpecialist:**
+Ensure the `ScreeningSpecialist` uses **Smina** (a fork of Vina) rather than standard AutoDock Vina if you intend to apply the distance constraint *during* docking. Standard Vina does not support atom-specific distance constraints easily; it requires post-docking filtering. Smina supports this natively.
+
+**Vote:** **NO GO** until the MD timeout/duration is reconciled.

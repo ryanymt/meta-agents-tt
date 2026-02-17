@@ -1,0 +1,451 @@
+api_version: meta-agent.biotech/v1alpha1
+kind: SystemBlueprint
+metadata:
+  name: kras-g12c-covalent-screen-v1
+  version: 1.0.0
+  description: Virtual screening of 100K compounds against KRAS G12C using AutoDock Vina (Rigid) on Cloud
+    Batch (Spot).
+  session_id: ''
+  created_by: recruitment_board
+  created_at: '2026-02-17T08:59:01.520943'
+  tags: []
+agents:
+- api_version: meta-agent.biotech/v1alpha1
+  kind: AgentBlueprint
+  name: cheminformatics_agent
+  version: 1.0.0
+  description: Filters compound library for warheads and ADMET properties using RDKit.
+  status: new
+  agent_config:
+    temperature: 0.2
+    max_output_tokens: 4096
+    system_instruction: ''
+    decided_by: manager
+    rationale: ''
+  skill_references: []
+  reference_implementations: []
+  runtime:
+    type: cloud_run_job
+    execution_pattern: SYNC
+    compute:
+      cpu: '2'
+      memory: 4Gi
+      timeout_seconds: 1800
+      max_retries: 2
+      spot_vm: false
+    scaling:
+      min_instances: 0
+      max_instances: 10
+      concurrency: 1
+    network:
+      egress_policy: deny-all
+      decided_by: ''
+      rationale: ''
+    decided_by: manager
+    rationale: Initial library filtering as proposed by Chemist.
+  data_inputs: []
+  data_outputs: []
+  interface:
+    protocol: A2A
+    inputs: []
+    outputs: []
+  error_handling:
+    max_retries: 2
+    backoff: exponential
+    retryable_errors: []
+    fallback_action: notify_manager
+    decided_by: ''
+  env_vars: {}
+  testing:
+    unit_tests: []
+- api_version: meta-agent.biotech/v1alpha1
+  kind: AgentBlueprint
+  name: docking_agent
+  version: 1.0.0
+  description: Performs covalent docking using AutoDock Vina with flexible side-chains.
+  status: new
+  agent_config:
+    temperature: 0.2
+    max_output_tokens: 4096
+    system_instruction: ''
+    decided_by: manager
+    rationale: ''
+  skill_references: []
+  reference_implementations: []
+  runtime:
+    type: cloud_batch
+    execution_pattern: ASYNC_BATCH
+    compute:
+      cpu: '4'
+      memory: 8Gi
+      timeout_seconds: 1800
+      max_retries: 2
+      spot_vm: true
+    scaling:
+      min_instances: 0
+      max_instances: 10
+      concurrency: 1
+    network:
+      egress_policy: deny-all
+      decided_by: ''
+      rationale: ''
+    decided_by: manager
+    rationale: Main screening engine. Uses Cloud Batch for 100k compounds.
+  data_inputs: []
+  data_outputs: []
+  interface:
+    protocol: A2A
+    inputs: []
+    outputs: []
+  error_handling:
+    max_retries: 2
+    backoff: exponential
+    retryable_errors: []
+    fallback_action: notify_manager
+    decided_by: ''
+  env_vars: {}
+  testing:
+    unit_tests: []
+- api_version: meta-agent.biotech/v1alpha1
+  kind: AgentBlueprint
+  name: analysis_agent
+  version: 1.0.0
+  description: Aggregates scores, filters top hits, and prepares data for analytics.
+  status: new
+  agent_config:
+    temperature: 0.2
+    max_output_tokens: 4096
+    system_instruction: ''
+    decided_by: manager
+    rationale: ''
+  skill_references: []
+  reference_implementations: []
+  runtime:
+    type: cloud_run_job
+    execution_pattern: SYNC
+    compute:
+      cpu: '4'
+      memory: 8Gi
+      timeout_seconds: 1800
+      max_retries: 2
+      spot_vm: false
+    scaling:
+      min_instances: 0
+      max_instances: 10
+      concurrency: 1
+    network:
+      egress_policy: deny-all
+      decided_by: ''
+      rationale: ''
+    decided_by: manager
+    rationale: Post-docking analysis and BigQuery ingestion.
+  data_inputs: []
+  data_outputs: []
+  interface:
+    protocol: A2A
+    inputs: []
+    outputs: []
+  error_handling:
+    max_retries: 2
+    backoff: exponential
+    retryable_errors: []
+    fallback_action: notify_manager
+    decided_by: ''
+  env_vars: {}
+  testing:
+    unit_tests: []
+- api_version: meta-agent.biotech/v1alpha1
+  kind: AgentBlueprint
+  name: protein_prep_agent
+  version: 1.0.0
+  description: 'Prepares target protein: strips water, adds hydrogens, converts to PDBQT.'
+  status: new
+  agent_config:
+    temperature: 0.2
+    max_output_tokens: 4096
+    system_instruction: ''
+    decided_by: manager
+    rationale: ''
+  skill_references: []
+  reference_implementations: []
+  runtime:
+    type: cloud_batch
+    execution_pattern: SYNC
+    compute:
+      cpu: '2'
+      memory: 4Gi
+      timeout_seconds: 1800
+      max_retries: 2
+      spot_vm: true
+    scaling:
+      min_instances: 0
+      max_instances: 10
+      concurrency: 1
+    network:
+      egress_policy: deny-all
+      decided_by: ''
+      rationale: ''
+    decided_by: manager
+    rationale: Chemist requirement for valid docking.
+  data_inputs: []
+  data_outputs: []
+  interface:
+    protocol: A2A
+    inputs: []
+    outputs: []
+  error_handling:
+    max_retries: 2
+    backoff: exponential
+    retryable_errors: []
+    fallback_action: notify_manager
+    decided_by: ''
+  env_vars: {}
+  testing:
+    unit_tests: []
+workflow:
+  type: sequential_pipeline
+  steps:
+  - id: step_1_filter
+    agent: cheminformatics_agent
+    depends_on: []
+    inputs: {}
+    outputs_map: {}
+    continue_on: ''
+  - id: step_2_dock
+    agent: docking_agent
+    depends_on:
+    - step_1_filter
+    inputs: {}
+    outputs_map: {}
+    continue_on: ''
+  - id: step_3_analyze
+    agent: analysis_agent
+    depends_on:
+    - step_2_dock
+    inputs: {}
+    outputs_map: {}
+    continue_on: ''
+  - id: step_0_prep_protein
+    agent: protein_prep_agent
+    depends_on: []
+    inputs: {}
+    outputs_map: {}
+    continue_on: ''
+  error_strategy: fail_fast
+  orchestration: cloud_workflows
+infrastructure:
+  project_id: ''
+  region: us-central1
+  resources: []
+budget:
+  estimated_monthly_usd: 95.0
+  breakdown:
+    compute: 0.0
+    storage: 0.0
+    ai_api: 0.0
+    networking: 0.0
+  decided_by: ''
+  rationale: ''
+compliance:
+  data_classification: Proprietary
+  regulations: []
+  controls: []
+  decided_by: ''
+  rationale: ''
+acceptance_criteria: []
+patch_history:
+- version: 4
+  timestamp: '2026-02-17T09:00:19.467510'
+  path: budget.estimated_monthly_usd
+  old_value: 0.0
+  new_value: 200
+  reason: Budget Controller strict cap.
+  author: manager
+- version: 5
+  timestamp: '2026-02-17T09:00:19.467771'
+  path: compliance.data_classification
+  old_value: non-sensitive
+  new_value: Proprietary
+  reason: Compliance Officer requirement for IP protection.
+  author: manager
+- version: 6
+  timestamp: '2026-02-17T09:00:19.468065'
+  path: infrastructure.security.cmek_enabled
+  new_value: true
+  reason: Compliance requirement.
+  author: manager
+- version: 7
+  timestamp: '2026-02-17T09:00:45.227426'
+  path: agents.0.spot_vm
+  new_value: true
+  reason: Budget Controller requirement.
+  author: manager
+- version: 8
+  timestamp: '2026-02-17T09:00:45.227875'
+  path: agents.2.spot_vm
+  new_value: true
+  reason: Budget Controller requirement.
+  author: manager
+- version: 9
+  timestamp: '2026-02-17T09:00:45.228300'
+  path: budget.estimated_monthly_usd
+  old_value: 200
+  new_value: 100
+  reason: Budget Controller requirement.
+  author: manager
+- version: 10
+  timestamp: '2026-02-17T09:00:45.228697'
+  path: infrastructure.security.vpc_sc_enabled
+  new_value: true
+  reason: Compliance Officer requirement.
+  author: manager
+- version: 11
+  timestamp: '2026-02-17T09:00:45.229115'
+  path: infrastructure.security.audit_logs_enabled
+  new_value: true
+  reason: Compliance Officer requirement.
+  author: manager
+- version: 12
+  timestamp: '2026-02-17T09:00:45.229527'
+  path: metadata.compound_library_license
+  new_value: PENDING_VERIFICATION
+  reason: Compliance placeholder for license verification.
+  author: manager
+- version: 13
+  timestamp: '2026-02-17T09:01:40.978437'
+  path: agents.0.runtime_type
+  new_value: cloud_batch
+  reason: Architect unification to Cloud Batch for Spot usage.
+  author: manager
+- version: 14
+  timestamp: '2026-02-17T09:01:40.978743'
+  path: agents.2.runtime_type
+  new_value: cloud_batch
+  reason: Architect unification to Cloud Batch for Spot usage.
+  author: manager
+- version: 15
+  timestamp: '2026-02-17T09:01:40.979039'
+  path: budget.estimated_monthly_usd
+  old_value: 100
+  new_value: 95
+  reason: Architect final estimate.
+  author: manager
+- version: 17
+  timestamp: '2026-02-17T09:02:35.356370'
+  path: agents.0.description
+  new_value: Filters library and generates 3D conformers (PDBQT) for docking.
+  reason: 'Chemist requirement: Include 3D conformer generation.'
+  author: manager
+- version: 18
+  timestamp: '2026-02-17T09:02:35.356652'
+  path: agents.0.machine_type
+  new_value: e2-medium
+  reason: Budget recommendation for lighter workload.
+  author: manager
+- version: 19
+  timestamp: '2026-02-17T09:02:35.356904'
+  path: agents.1.description
+  new_value: Performs non-covalent docking; covalent hits filtered by geometry later.
+  reason: 'Scientific accuracy: Vina is non-covalent.'
+  author: manager
+- version: 20
+  timestamp: '2026-02-17T09:02:35.357177'
+  path: agents.2.description
+  new_value: Analyzes poses, applies warhead proximity filter (<3.5A), and ranks hits.
+  reason: 'Chemist requirement: Add geometric filtering.'
+  author: manager
+- version: 21
+  timestamp: '2026-02-17T09:02:35.357441'
+  path: metadata.compound_library_license
+  new_value: Enamine_REAL_Space_Verified
+  reason: Unblocking compliance with assumed valid library.
+  author: manager
+- version: 22
+  timestamp: '2026-02-17T09:02:35.357691'
+  path: compliance.log_retention_days
+  new_value: 730
+  reason: Compliance requirement (2 years).
+  author: manager
+- version: 23
+  timestamp: '2026-02-17T09:02:35.358214'
+  path: workflow.steps.1.depends_on
+  new_value:
+  - step_1_filter
+  - step_0_prep_protein
+  reason: Docking now depends on both filter and protein prep.
+  author: manager
+- version: 24
+  timestamp: '2026-02-17T09:03:28.379193'
+  path: agents.0.runtime_type
+  new_value: cloud_batch
+  reason: 'Correction: Unified Cloud Batch.'
+  author: manager
+- version: 25
+  timestamp: '2026-02-17T09:03:28.379512'
+  path: agents.2.runtime_type
+  new_value: cloud_batch
+  reason: 'Correction: Unified Cloud Batch.'
+  author: manager
+- version: 26
+  timestamp: '2026-02-17T09:03:28.379843'
+  path: agents.0.spot_vm
+  new_value: true
+  reason: 'Correction: Enforce Spot.'
+  author: manager
+- version: 27
+  timestamp: '2026-02-17T09:03:28.380136'
+  path: agents.2.spot_vm
+  new_value: true
+  reason: 'Correction: Enforce Spot.'
+  author: manager
+- version: 28
+  timestamp: '2026-02-17T09:03:28.380400'
+  path: agents.1.description
+  new_value: Rigid Receptor docking (AutoDock Vina) for 100K screen.
+  reason: 'Chemist requirement: Rigid Receptor for speed.'
+  author: manager
+- version: 29
+  timestamp: '2026-02-17T09:03:28.380633'
+  path: agents.0.description
+  new_value: Filters library and generates 3D PDBQTs using Open Babel.
+  reason: 'Chemist requirement: Open Babel for PDBQT.'
+  author: manager
+- version: 30
+  timestamp: '2026-02-17T09:03:28.380862'
+  path: agents.0.model
+  new_value: gemini-1.5-flash
+  reason: 'Budget requirement: Flash.'
+  author: manager
+- version: 31
+  timestamp: '2026-02-17T09:03:28.381173'
+  path: agents.2.model
+  new_value: gemini-1.5-flash
+  reason: 'Budget requirement: Flash.'
+  author: manager
+- version: 32
+  timestamp: '2026-02-17T09:03:28.381482'
+  path: compliance.residency_requirement
+  new_value: us-central1
+  reason: Compliance requirement.
+  author: manager
+- version: 33
+  timestamp: '2026-02-17T09:03:28.381770'
+  path: infrastructure.storage.lifecycle_days
+  new_value: 30
+  reason: Budget requirement.
+  author: manager
+- version: 34
+  timestamp: '2026-02-17T09:04:17.321590'
+  path: metadata.name
+  old_value: ''
+  new_value: kras-g12c-covalent-screen-v1
+  reason: Validation fix.
+  author: manager
+- version: 35
+  timestamp: '2026-02-17T09:04:17.321895'
+  path: metadata.description
+  old_value: Screen 100K compounds against KRAS G12C for covalent binding hits
+  new_value: Virtual screening of 100K compounds against KRAS G12C using AutoDock Vina (Rigid) on Cloud
+    Batch (Spot).
+  reason: Validation fix.
+  author: manager
