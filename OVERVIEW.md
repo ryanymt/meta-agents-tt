@@ -216,7 +216,7 @@ The Inventory pre-ships with a **Day 1 Content Pack**: 23 GCP services, 10 AI/ML
 | Component | Technology | Why |
 |-----------|-----------|-----|
 | Agent Framework | Google ADK v1.24.1 | Native GCP integration, Agent Engine deployment |
-| Primary Model | Gemini (2.5 Flash for MVP) | Cost-effective, strong tool use |
+| Primary Model | Gemini (3.0 Pro and Flash for MVP) | Cost-effective, strong tool use |
 | Cross-Check Model | Claude Sonnet 4.5 (via Vertex AI) | Independent adversarial review |
 | State Store | Firestore | Session state, inventory, discussion logs |
 | Hosting | Cloud Run (meta-system), Agent Engine (deployed agents) | Serverless, scales to zero |
