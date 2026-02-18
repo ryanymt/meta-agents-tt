@@ -1,0 +1,85 @@
+# Platform guidance — shared ground truth for Board consultants and Claude cross-check.
+# Injected into all consultant contexts and appended to Claude's review prompt.
+# Keep this concise: directional guidance, not exhaustive docs.
+
+# ─── Runtime Selection Matrix ───────────────────────────────────
+# Replaces the flat "compute.preferred" in tooling_preferences.yaml.
+# Board consultants use this to pick the right runtime per agent.
+runtime_selection:
+  agent_engine:
+    preferred_for: "LLM-based agents, retrieval agents, chat agents, orchestrators"
+    rationale: "A2A-native, Gemini Enterprise distribution, managed scaling, session state"
+    when:
+      - "Agent uses LLM reasoning (Gemini model)"
+      - "Agent needs A2A inter-agent communication"
+      - "Agent serves end-users via Gemini Enterprise"
+      - "Agent is a retrieval/search agent calling external APIs"
+    runtime_type: "agent_engine"
+
+  cloud_run_service:
+    preferred_for: "Lightweight stateless services, format converters, webhooks"
+    rationale: "Serverless, fast cold start, sync HTTP, no LLM needed"
+    when:
+      - "Simple API wrapper or data transformer"
+      - "No LLM reasoning required"
+      - "Sync HTTP request/response under 15 minutes"
+    runtime_type: "cloud_run_service"
+
+  cloud_batch:
+    preferred_for: "GPU workloads, HPC, long-running compute"
+    rationale: "Spot VM support, GPU scheduling, checkpointing"
+    when:
+      - "Molecular docking, MD simulations, ML inference with GPU"
+      - "Batch processing > 15 minutes"
+      - "Needs GPU (T4, L4, A100)"
+    runtime_type: "cloud_batch"
+
+# ─── Model Versions (authoritative for this project) ───────────
+# These are REAL and AVAILABLE. Do NOT downgrade or flag as non-existent.
+model_versions:
+  primary:
+    model: "gemini-3-pro-preview"
+    use_for: "Complex reasoning, evidence synthesis, orchestration"
+    location: "global"
+    note: "Gemini 3 Preview is real and available on the global endpoint."
+  fast:
+    model: "gemini-3-flash-preview"
+    use_for: "Retrieval agents, validation, cost-sensitive tasks"
+    location: "global"
+    note: "Use Flash for agents that don't need deep reasoning."
+  cross_check:
+    model: "claude-sonnet-4-5@20250929"
+    use_for: "Independent adversarial review during SYNTHESIS"
+    location: "us-east5"
+  deprecated:
+    - "gemini-2.0-flash-001"
+    - "gemini-1.5-pro-002"
+    - "gemini-1.5-flash-002"
+    - "gemini-2.5-pro"
+    - "gemini-2.5-flash"
+  rule: "NEVER use deprecated models. Always use gemini-3-*-preview."
+
+# ─── Network / Egress Policy ───────────────────────────────────
+network:
+  default_egress: "deny-all"
+  allow_internet_when:
+    - "Agent calls external public APIs (PubMed NCBI, ClinicalTrials.gov, ChEMBL, PDB, UniProt)"
+    - "Agent downloads public datasets or reference structures"
+    - "Agent needs to access container registries for pulling images"
+  egress_for_internal_only: "deny-all"
+  note: "Agents that only call GCP services (BigQuery, GCS, Vertex AI) keep deny-all."
+
+# ─── A2A Protocol ──────────────────────────────────────────────
+a2a:
+  description: "Agent-to-Agent protocol for inter-agent communication and discovery"
+  native_on: "Vertex AI Agent Engine"
+  agent_card: "Every Agent Engine agent auto-publishes an A2A Agent Card"
+  discovery: "Agents discover each other via Agent Card registry"
+  note: "Prefer Agent Engine for A2A interop. Cloud Run agents need manual A2A wrappers."
+
+# ─── User-Facing Distribution ──────────────────────────────────
+distribution:
+  platform: "gemini_enterprise"
+  note: "The orchestrator agent is registered on Gemini Enterprise for scientist access."
+  orchestrator_runtime: "agent_engine"
+  rule: "Orchestrators MUST run on Agent Engine, never Cloud Run."
