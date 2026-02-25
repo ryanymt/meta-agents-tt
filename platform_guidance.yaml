@@ -1,10 +1,12 @@
 # Platform guidance — shared ground truth for Board consultants and Claude cross-check.
 # Injected into all consultant contexts and appended to Claude's review prompt.
-# Keep this concise: directional guidance, not exhaustive docs.
+# Authoritative reference. Consultants MUST follow this; Claude cross-check validates against it.
 
-# ─── Runtime Selection Matrix ───────────────────────────────────
-# Replaces the flat "compute.preferred" in tooling_preferences.yaml.
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 1: RUNTIME SELECTION MATRIX
+# ═══════════════════════════════════════════════════════════════════
 # Board consultants use this to pick the right runtime per agent.
+
 runtime_selection:
   agent_engine:
     preferred_for: "LLM-based agents, retrieval agents, chat agents, orchestrators"
@@ -27,15 +29,37 @@ runtime_selection:
 
   cloud_batch:
     preferred_for: "GPU workloads, HPC, long-running compute"
-    rationale: "Spot VM support, GPU scheduling, checkpointing"
+    rationale: "Spot VM support, GPU scheduling, checkpointing, task arrays up to 10K"
     when:
       - "Molecular docking, MD simulations, ML inference with GPU"
       - "Batch processing > 15 minutes"
       - "Needs GPU (T4, L4, A100)"
+      - "Embarrassingly parallel workloads (compound screening, variant calling)"
     runtime_type: "cloud_batch"
 
-# ─── Model Versions (authoritative for this project) ───────────
+  gke:
+    preferred_for: "Long-running services, multi-tenant platforms, Nextflow/Cromwell"
+    rationale: "Persistent services, custom networking, Autopilot pay-per-pod"
+    when:
+      - "JupyterHub, Nextflow Tower, or similar always-on services"
+      - "Multi-tenant platform shared across teams"
+      - "Kubeflow Pipelines with experiment tracking"
+    runtime_type: "gke_autopilot"
+    note: "Avoid GKE when Cloud Batch or Cloud Run suffices."
+
+  compute_engine:
+    preferred_for: "Interactive research, custom deployments (avoid for production)"
+    when:
+      - "One-off interactive exploration or debugging"
+    runtime_type: "compute_engine"
+    note: "NOT recommended for production agents. Use managed services instead."
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 2: MODEL VERSIONS (authoritative for this project)
+# ═══════════════════════════════════════════════════════════════════
 # These are REAL and AVAILABLE. Do NOT downgrade or flag as non-existent.
+
 model_versions:
   primary:
     model: "gemini-3-pro-preview"
@@ -44,13 +68,25 @@ model_versions:
     note: "Gemini 3 Preview is real and available on the global endpoint."
   fast:
     model: "gemini-3-flash-preview"
-    use_for: "Retrieval agents, validation, cost-sensitive tasks"
+    use_for: "Retrieval agents, validation, cost-sensitive tasks, linter"
     location: "global"
     note: "Use Flash for agents that don't need deep reasoning."
   cross_check:
     model: "claude-sonnet-4-5@20250929"
     use_for: "Independent adversarial review during SYNTHESIS"
     location: "us-east5"
+    note: "Only us-east5 confirmed working. Uses AsyncAnthropicVertex SDK, GCP ADC auth."
+  specialized:
+    medgemma:
+      model: "medgemma"
+      variants: ["4B", "27B"]
+      use_for: "Clinical QA, biomedical NER, drug interaction analysis"
+      note: "GA via Model Garden. Click-through license."
+    txgemma:
+      model: "txgemma"
+      variants: ["2B", "9B", "27B"]
+      use_for: "Drug-likeness prediction, ADMET, binding affinity, compound classification"
+      note: "Preview/GA via Model Garden."
   deprecated:
     - "gemini-2.0-flash-001"
     - "gemini-1.5-pro-002"
@@ -59,27 +95,974 @@ model_versions:
     - "gemini-2.5-flash"
   rule: "NEVER use deprecated models. Always use gemini-3-*-preview."
 
-# ─── Network / Egress Policy ───────────────────────────────────
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 3: GPU SELECTION MATRIX
+# ═══════════════════════════════════════════════════════════════════
+
+gpu_selection:
+  t4:
+    gpu: "NVIDIA T4 (16 GB)"
+    machine_type: "n1-standard-4 + T4"
+    on_demand_usd_hr: 0.54
+    spot_usd_hr: 0.14         # ~75% discount
+    best_for:
+      - "Light docking inference (GNINA, AutoDock Vina)"
+      - "Variant calling (DeepVariant)"
+      - "Small ML inference"
+    note: "Default GPU choice. Challenge A100 requests — T4 suffices for most inference."
+
+  l4:
+    gpu: "NVIDIA L4 (24 GB)"
+    machine_type: "g2-standard-8"
+    on_demand_usd_hr: 0.84
+    spot_usd_hr: 0.21
+    best_for:
+      - "DiffDock inference"
+      - "Medium model training"
+      - "Cloud Run GPU inference (preview)"
+    note: "Step up from T4 when 16 GB VRAM is insufficient."
+
+  a100_40gb:
+    gpu: "NVIDIA A100 (40 GB)"
+    machine_type: "a2-highgpu-1g"
+    on_demand_usd_hr: 3.67
+    spot_usd_hr: 0.92
+    best_for:
+      - "AlphaFold monomer prediction"
+      - "Large MD simulations (GROMACS)"
+      - "Model fine-tuning"
+    note: "Requires justification. Budget Controller rejects without rationale."
+
+  a100_80gb:
+    gpu: "NVIDIA A100 (80 GB)"
+    machine_type: "a2-ultragpu-1g"
+    on_demand_usd_hr: 5.07
+    spot_usd_hr: 1.27
+    best_for:
+      - "AlphaFold multimer"
+      - "Large-scale training"
+
+  h100:
+    gpu: "NVIDIA H100 (80 GB)"
+    machine_type: "a3-highgpu-1g"
+    on_demand_usd_hr: 8.68
+    best_for:
+      - "Large-scale training only"
+    note: "Rarely justified for biotech inference. Requires strong justification."
+
+  rule: "Default to T4. Escalate to L4 only if VRAM insufficient. A100/H100 require explicit justification."
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 4: COST OPTIMIZATION STRATEGIES
+# ═══════════════════════════════════════════════════════════════════
+
+cost_optimization:
+  spot_vms:
+    discount_range: "60-91% off on-demand"
+    rule: "MANDATORY for all fault-tolerant batch workloads (docking, MD, screening, variant calling)"
+    note: "Cloud Batch handles preemption + auto-retry. No reason to use on-demand for batch."
+    fallback: "If Spot preemptions exceed threshold, auto-fallback to on-demand with max_fallback_cost_usd: 50"
+
+  committed_use_discounts:
+    one_year: "37% off on-demand"
+    three_year: "55% off on-demand"
+    use_when: "Baseline always-on compute (e.g., production orchestrator agent)"
+
+  sustained_use_discounts:
+    discount: "20-30% automatic"
+    note: "Applied automatically for long-running resources. No commitment required."
+
+  storage_lifecycle:
+    standard_to_nearline: "After 7 days (50% savings)"
+    nearline_to_coldline: "After 30 days (80% savings)"
+    delete_intermediate: "After 30 days (intermediate data is reproducible)"
+    rule: "All pipeline data buckets MUST have lifecycle rules. No indefinite Standard storage."
+
+  model_cost_optimization:
+    rule: "Use Flash ($0.075/1M input) for tasks that don't need deep reasoning. Pro ($1.25/1M input) only for complex analysis."
+    note: "Budget Controller rejects Pro for linting, validation, or simple retrieval."
+
+  scale_to_zero:
+    applies_to: ["Cloud Run", "Agent Engine (idle sessions)"]
+    note: "Agents cost $0/month when idle. Prefer serverless for intermittent workloads."
+
+  budget_alerts:
+    thresholds: ["50%", "80%", "100%"]
+    rule: "Every blueprint MUST specify estimated_monthly_usd, breakdown, and hard_cap_usd."
+
+  cost_per_unit_benchmarks:
+    variant_calling_30x_wgs: "$0.50-5.00/genome"
+    molecular_docking_10k: "$10-50/batch"
+    alphafold_single: "$5-50/prediction"
+    gromacs_md_100ns: "$20-100/simulation"
+    agent_hosting_idle: "~$0/month"
+    agent_hosting_active: "$5-50/month"
+    compound_screening_pipeline: "$50-200/run"
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 5: STORAGE & DATA PATTERNS
+# ═══════════════════════════════════════════════════════════════════
+
+storage:
+  gcs:
+    use_for: "Pipeline I/O, PDB files, FASTQ/BAM/CRAM, SDF compounds, model weights"
+    pricing: "$0.020/GB/mo (Standard), $0.010 (Nearline), $0.004 (Coldline), $0.0012 (Archive)"
+    rules:
+      - "All pipeline data buckets MUST have lifecycle rules"
+      - "Use Autoclass for unpredictable access patterns"
+      - "Uniform bucket-level access (no per-object ACLs)"
+
+  bigquery:
+    use_for: "Genomic variant analytics, docking results warehouse, clinical trial data"
+    pricing: "$0.02/GB/mo (active), $0.01/GB/mo (90+ days), $6.25/TB scanned"
+    rules:
+      - "Use BigQuery for analytics, NOT for transactional state"
+      - "Partition tables by date or chromosome for cost reduction"
+      - "Use CMEK for PHI/genomic data"
+    public_datasets:
+      - "1000 Genomes (84.4M variants)"
+      - "ClinVar (pathogenicity classification)"
+      - "gnomAD (allele frequencies)"
+      - "FDA FAERS (adverse events)"
+      - "Google Patents (IP analysis)"
+      - "NCBI Gene (annotation)"
+
+  firestore:
+    use_for: "Inventory metadata, agent session state, discussion logs, blueprint docs"
+    pricing: "$0.06/100K reads, $0.18/100K writes, $0.15/GB/mo"
+    rules:
+      - "Use Firestore for state, NOT for analytics (use BigQuery)"
+      - "TTL documents for ephemeral data"
+
+  healthcare_api:
+    use_for: "FHIR stores, DICOM imaging, HL7v2 messages (HIPAA-compliant)"
+    pricing: "FHIR $0.03/10K ops, HL7v2 $0.05/10K msgs"
+    rules:
+      - "Requires HIPAA BAA for PHI"
+      - "Region-restricted for data residency"
+      - "Export to BigQuery for analytics"
+
+  filestore:
+    use_for: "Shared NFS (AlphaFold genetic databases, Nextflow work dirs)"
+    pricing: "HDD $0.20/GB/mo, SSD $0.27/GB/mo"
+    note: "Avoid unless frequent random access needed. Use GCS for most data."
+
+  secret_manager:
+    use_for: "API keys, credentials, certificates"
+    pricing: "$0.06/10K accesses, $0.03/secret version/mo"
+    rule: "ALL credentials MUST use Secret Manager. No plaintext in env vars or code."
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 6: NETWORK / EGRESS POLICY
+# ═══════════════════════════════════════════════════════════════════
+
 network:
   default_egress: "deny-all"
-  allow_internet_when:
-    - "Agent calls external public APIs (PubMed NCBI, ClinicalTrials.gov, ChEMBL, PDB, UniProt)"
-    - "Agent downloads public datasets or reference structures"
-    - "Agent needs to access container registries for pulling images"
-  egress_for_internal_only: "deny-all"
-  note: "Agents that only call GCP services (BigQuery, GCS, Vertex AI) keep deny-all."
+  egress_policies:
+    deny_all:
+      description: "No external network calls"
+      use_when: "Agent only calls GCP services (BigQuery, GCS, Vertex AI, internal APIs)"
+      example_agents: ["Molecular filter (RDKit)", "Scoring agent", "Analytics agent"]
+    allow_pdb_only:
+      description: "Only PDB database (RCSB) access"
+      use_when: "Agent fetches protein structures from RCSB PDB"
+    allow_huggingface_only:
+      description: "Only HuggingFace Hub access"
+      use_when: "Agent downloads model weights from HuggingFace"
+    allow_public_bio_apis:
+      description: "PubMed NCBI, ClinicalTrials.gov, ChEMBL, PDB, UniProt, PubChem"
+      use_when: "Agent queries multiple public bioinformatics APIs"
+    allow_container_registries:
+      description: "Docker Hub, GHCR, Artifact Registry"
+      use_when: "Agent pulls container images at runtime"
+  rules:
+    - "Default is deny-all. Every agent MUST declare egress_policy."
+    - "Compliance Officer blocks proposals with unspecified egress."
+    - "No public IP on compute resources (use Private Google Access)."
+  note: "Agents that only call GCP services keep deny-all."
 
-# ─── A2A Protocol ──────────────────────────────────────────────
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 7: SECURITY & COMPLIANCE FRAMEWORK
+# ═══════════════════════════════════════════════════════════════════
+
+security:
+  data_classification:
+    levels:
+      non_sensitive:
+        description: "Chemical compounds, public datasets, docking scores"
+        controls: ["audit_logging", "vpc_network_isolation"]
+      pii:
+        description: "Individual research participant data"
+        controls: ["audit_logging", "vpc_network_isolation", "encryption_at_rest", "encryption_in_transit", "dlp_scanning"]
+        regulations: ["GDPR"]
+      phi:
+        description: "Patient genomic/clinical data"
+        controls: ["audit_logging", "vpc_network_isolation", "encryption_at_rest", "encryption_in_transit", "cmek_encryption", "data_residency"]
+        regulations: ["HIPAA", "GxP"]
+      genomic:
+        description: "Variant calls, sequencing data, population genetics"
+        controls: ["audit_logging", "vpc_network_isolation", "encryption_at_rest", "encryption_in_transit", "cmek_encryption"]
+        regulations: ["GxP", "FDA_21_CFR_11"]
+    rule: "Every blueprint MUST declare data_classification. Default to most restrictive if unclear."
+
+  regulations:
+    hipaa:
+      applies_when: "Patient/clinical data in US"
+      requires: ["audit_logging", "encryption_at_rest", "encryption_in_transit", "access_controls", "baa_with_gcp"]
+    gdpr:
+      applies_when: "EU resident data (any type)"
+      requires: ["data_residency_eu", "right_to_deletion", "explicit_consent", "dpa_approval"]
+    gxp:
+      applies_when: "Pharmaceutical/clinical workflow data"
+      requires: ["audit_trail_immutable", "role_based_access", "validation_documentation"]
+    fda_21_cfr_11:
+      applies_when: "Electronic records for drug development"
+      requires: ["audit_logging", "cryptographic_timestamps", "user_identification", "5yr_retention"]
+
+  iam:
+    principle: "Least privilege — service accounts have only required roles"
+    hard_blocks:
+      - "No roles/owner on any service account"
+      - "No roles/editor on any service account"
+      - "No project-level admin roles for pipeline agents"
+    rules:
+      - "Separate service accounts per pipeline stage"
+      - "No human SSH access — all ops via ADK/Cloud Run/Batch"
+      - "All service account actions logged to Cloud Audit Logs"
+
+  encryption:
+    at_rest: "Google-managed encryption by default. CMEK for PHI/genomic data."
+    in_transit: "All Cloud API calls use HTTPS/TLS 1.2+. OIDC tokens for service-to-service."
+    secrets: "ALL credentials in Secret Manager. No plaintext values anywhere."
+    rule: "Compliance Officer blocks proposals missing encryption at rest or in transit."
+
+  vpc_sc:
+    description: "VPC Service Controls — security perimeters prevent data exfiltration"
+    mandatory_for: ["genomic data", "PHI", "federated learning", "multi-jurisdiction"]
+    pricing: "Free (no additional charge)"
+
+  audit_logging:
+    rule: "Non-negotiable. Every blueprint MUST enable audit logging."
+    retention:
+      admin_activity: "400 days"
+      data_access: "90 days minimum"
+      clinical_grade: "5+ years (FDA 21 CFR Part 11)"
+    services: ["Cloud Audit Logs (admin + data access)", "Cloud Logging sinks", "BigQuery export for analytics"]
+
+  dlp:
+    description: "Cloud DLP — discover, classify, de-identify sensitive data"
+    use_when: "PHI detection before sharing, PII scanning, de-identification"
+    pricing: "$1.00-6.00/GB inspected"
+
+  compliance_checklist:
+    mandatory_fields:
+      - "data_classification"
+      - "applicable regulations"
+      - "iam service accounts and roles"
+      - "egress_policy"
+      - "encryption (at_rest + in_transit)"
+      - "audit_logging enabled"
+      - "secrets in Secret Manager"
+    note: "Compliance Officer blocks proposals missing any mandatory field."
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 8: WORKFLOW ORCHESTRATION PATTERNS
+# ═══════════════════════════════════════════════════════════════════
+
+workflow_orchestration:
+  execution_patterns:
+    sync:
+      timing: "Seconds to minutes"
+      infrastructure: "Agent Engine or Cloud Run (in-process)"
+      use_when: "CPU-only filtering, format conversion, lightweight rules"
+      example: "Molecular filter (RDKit Lipinski filtering on 4 CPUs)"
+
+    async_batch:
+      timing: "Minutes to hours"
+      infrastructure: "Cloud Batch + Cloud Workflows + Pub/Sub"
+      use_when: "GPU workloads, batch processing > 15 minutes"
+      flow: "Submit Cloud Batch job → Cloud Workflows polls → Pub/Sub notifies → process results"
+      example: "DiffDock docking on T4 GPU (~30 min per batch)"
+
+    hybrid:
+      timing: "Response in seconds, work in hours"
+      infrastructure: "Agent Engine (front) + Cloud Batch (back)"
+      use_when: "Users want immediate feedback; batch job is long-running"
+      flow: "Accept request → return job_id → submit Cloud Batch → user polls or callback"
+
+  orchestration_engines:
+    cloud_workflows:
+      status: "DEFAULT"
+      use_for: "Multi-step async pipelines, submit-wait-process patterns"
+      pricing: "$0.01/1K internal steps, $0.025/1K external HTTP calls"
+      note: "Serverless, zero infra overhead. Sufficient for 99% of workflows."
+
+    pubsub:
+      status: "ALWAYS PAIRED with Cloud Workflows"
+      use_for: "Job completion events, inter-step async notifications"
+      pricing: "$40/TB ingested (10 GB/mo free)"
+
+    kubeflow_pipelines:
+      status: "ESCALATION ONLY"
+      use_when:
+        - "Blueprint requires ML experiment tracking (A/B model comparison)"
+        - "Pipeline has >10 steps with complex DAG dependencies"
+        - "Artifact lineage required for regulatory compliance (FDA 21 CFR Part 11)"
+        - "Model retraining loop (train → evaluate → promote → deploy)"
+      pricing: "$150+/month for GKE cluster"
+      note: "Requires GKE. Only justified when experiment tracking + lineage needed."
+
+    cloud_composer:
+      status: "ESCALATION ONLY"
+      use_when:
+        - "Blueprint has workflow.schedule set (cron jobs)"
+        - "Recurring scheduled batch pipelines (nightly re-docking, periodic rescoring)"
+      pricing: "$300+/month for managed Airflow"
+      note: "Only for recurring schedules. One-off pipelines use Cloud Workflows."
+
+  rule: "Default is Cloud Workflows + Pub/Sub. Escalate only when triggers above are met."
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 9: DOCKER BASE IMAGES
+# ═══════════════════════════════════════════════════════════════════
+
+docker_base_images:
+  registry: "us-central1-docker.pkg.dev/biotech-images/base"
+
+  cpu:
+    image: "biotech-base-cpu"
+    python: "3.11"
+    packages: ["numpy", "pandas", "scipy"]
+    use_for: "Generic CPU-only agents"
+
+  cheminformatics:
+    image: "biotech-base-cheminformatics"
+    python: "3.11"
+    packages: ["numpy", "pandas", "scipy", "rdkit", "openbabel"]
+    use_for: "Drug discovery, compound filtering, SMILES processing"
+
+  structural:
+    image: "biotech-base-structural"
+    python: "3.11"
+    packages: ["numpy", "pandas", "scipy", "pymol", "biopython", "openmm"]
+    use_for: "Protein structure analysis, docking prep, MD"
+
+  genomics:
+    image: "biotech-base-genomics"
+    python: "3.11"
+    packages: ["numpy", "pandas", "scipy", "samtools", "bcftools", "pysam"]
+    use_for: "Variant calling, sequence alignment, BAM processing"
+
+  gpu:
+    image: "biotech-base-gpu"
+    python: "3.11"
+    packages: ["CUDA 12", "PyTorch", "numpy", "pandas"]
+    use_for: "GPU-accelerated ML inference, deep learning docking"
+
+  selection_rule: "Runtime Architect selects base image from skill manifest base_image_hint field."
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 10: DEPLOYMENT PIPELINE
+# ═══════════════════════════════════════════════════════════════════
+
+deployment:
+  stages:
+    sandbox:
+      project: "biotech-sandbox-001"
+      purpose: "Test infra + code. Fully disposable."
+      budget_cap_usd: 50
+      triggered_by: "Dev Manager after Phase D testing"
+      actions: ["terraform apply", "Docker build + push", "deploy to Agent Engine", "smoke tests"]
+      on_failure: "terraform destroy, escalate to Dev Manager"
+
+    staging:
+      project: "biotech-staging"
+      purpose: "Integration tests, canary deployment"
+      budget_cap_usd: 100
+      triggered_by: "Dev Manager after sandbox passes"
+      actions: ["Deploy same image", "full acceptance_criteria suite", "30 min monitoring"]
+      on_failure: "Instant traffic shift back to previous version"
+
+    production:
+      project: "user-specified or biotech-prod"
+      purpose: "User-facing via Agent Engine + Gemini Enterprise"
+      budget_cap: "Blueprint hard_cap_usd"
+      triggered_by: "User approval (manual gate)"
+      actions: ["Deploy image", "register in Inventory", "generate A2A Card", "publish on Gemini Enterprise"]
+
+  version_pinning:
+    auto_update: false
+    pinned:
+      - "SKILL.md version (locked to generation-time commit)"
+      - "Python packages (exact == pins, no >= ranges)"
+      - "Base image tag (never :latest)"
+      - "Model weights (hash/checksum recorded)"
+    rule: "No auto-updates. Scientific reproducibility requires exact version control."
+    update_triggers:
+      - "User explicitly requests upgrade"
+      - "Security vulnerability (CVE) in dependency"
+      - "SKILL.md updated with breaking changes"
+
+  rollback:
+    mechanism: "Instant traffic shift via Cloud Run/Agent Engine revision control"
+    retention: "Old versions retained 30 days"
+    process: "Revert traffic → update Inventory → notify user"
+
+  cloud_build:
+    steps:
+      - "Terraform init + apply (provision infra)"
+      - "Docker build"
+      - "Push to Artifact Registry"
+      - "Deploy to Agent Engine"
+      - "Run acceptance tests"
+    security_gates:
+      - "tfsec/checkov scan (blocks critical findings)"
+      - "Cost estimation vs budget (blocks if over hard_cap_usd)"
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 11: TESTING & VALIDATION GATES
+# ═══════════════════════════════════════════════════════════════════
+
+testing:
+  three_strike_rule:
+    max_retries: 3
+    process: "Code Gen generates → Test Agent validates → if fail, Code Gen fixes → retry"
+    on_exhaustion: "Escalate to human with last errors and generated code"
+
+  test_layers:
+    - name: "compile_check"
+      command: "python -m compileall src/"
+      blocks_deploy: true
+    - name: "import_check"
+      command: "python -c 'import src.agent'"
+      blocks_deploy: true
+    - name: "dependency_check"
+      command: "pip check"
+      blocks_deploy: true
+    - name: "unit_tests"
+      command: "pytest tests/"
+      blocks_deploy: true
+    - name: "smoke_test"
+      description: "Sample input → expected output"
+      blocks_deploy: true
+    - name: "security_scan"
+      command: "tfsec + checkov"
+      blocks_deploy: true
+      note: "Only critical findings block. Warnings are logged."
+    - name: "cost_estimate"
+      command: "terraform plan → compare vs budget"
+      blocks_deploy: true
+      note: "Blocks if estimated cost > hard_cap_usd"
+
+  acceptance_criteria:
+    cost_validation: "Verify actual cost matches budget estimate within 50%"
+    compliance_validation:
+      - "VPC-SC perimeter is active"
+      - "No public IP on compute resources"
+      - "Audit logging enabled on all resources"
+    integration_test_budget: "$5 max per acceptance test run"
+
+  build_metrics:
+    tracked:
+      - "total_duration_seconds"
+      - "code_gen_attempts"
+      - "test_failures"
+      - "security_findings"
+      - "estimated_vs_actual_cost"
+    typical_total: "~480 seconds (8 minutes) sandbox deployment"
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 12: SKILL ARCHITECTURE & CODE GENERATION
+# ═══════════════════════════════════════════════════════════════════
+
+skills:
+  philosophy: "Skills are knowledge documents, NOT importable code. Code Gen writes NEW code from scratch."
+
+  three_knowledge_sources:
+    skill_md: "Scientific knowledge — domain expertise, best practices, pitfalls, algorithm details"
+    reference_scripts: "Code patterns — library usage, idioms, data transformations"
+    gcp_reference_repos: "Deployment patterns — Cloud Batch configs, GCS I/O, GPU settings"
+
+  code_generation_types:
+    python_function:
+      description: "Lightweight in-process logic"
+      examples: ["RDKit filters", "sequence alignment", "SMILES parsing"]
+      runs_on: "Agent's own process (Cloud Run / Agent Engine)"
+    container_job:
+      description: "Heavy compute, GPU-intensive"
+      examples: ["AlphaFold", "DiffDock", "GROMACS", "DeepVariant"]
+      runs_on: "Cloud Batch"
+    api_call:
+      description: "External service wrapper"
+      examples: ["PDB lookup", "UniProt fetch", "NCBI query"]
+      runs_on: "Agent's own process"
+    composite:
+      description: "Multi-step skill pipeline"
+      examples: ["Drug screening (prep→dock→score)", "Variant calling (align→call→annotate)"]
+      runs_on: "Cloud Workflows orchestrated"
+
+  trust_tiers:
+    gold:
+      requirements: "Expert-reviewed, >80% test coverage, 2 peer reviewers, >30 days production use"
+      policy: "Auto-approved for production. No friction."
+    silver:
+      requirements: "Reviewed, ≥50% test coverage, 1 reviewer"
+      policy: "Allowed with notice. User warned during plan approval."
+    bronze:
+      requirements: "May have gaps, may be untested"
+      policy: "Restricted. Requires explicit user approval + mandatory security scan."
+    promotion_path: "BRONZE → (validate + test + scan) → SILVER → (expert + peer review + >80%) → GOLD"
+
+  manifest_key_fields:
+    - "base_image_hint (selects Docker base image)"
+    - "gpu_required (triggers Cloud Batch runtime)"
+    - "runtime_requirements.pip_dependencies (package pins)"
+    - "code_generation.type (PYTHON_FUNCTION | CONTAINER_JOB | API_CALL | COMPOSITE)"
+    - "cost_hint (CPU_ONLY | GPU_REQUIRED | API_METERED)"
+    - "depends_on (knowledge dependencies, not import dependencies)"
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 13: INVENTORY & REUSE POLICY
+# ═══════════════════════════════════════════════════════════════════
+
+inventory:
+  asset_types:
+    - type: "SKILL"
+      description: "Knowledge docs for code generation"
+    - type: "AGENT"
+      description: "Pre-built, deployed agents (Agent Engine)"
+    - type: "SERVICE"
+      description: "Google Cloud services"
+    - type: "DATASET"
+      description: "Public or private datasets"
+    - type: "MODEL"
+      description: "AI/ML models"
+    - type: "TEMPLATE"
+      description: "Blueprint templates for workflows"
+    - type: "REPO"
+      description: "Reference implementation repos"
+
+  search:
+    engine: "Vertex AI Vector Search + Firestore metadata"
+    embedding_model: "text-embedding-005"
+    similarity_thresholds:
+      strong_match: 0.85    # "We already have this. Reuse?"
+      good_match: 0.75      # "Similar exists. Suggest reuse with mods."
+      component_match: 0.65 # "Found components to build with."
+      no_match: 0.0         # "Build from scratch."
+
+  reuse_first_policy:
+    rule: "Manager MUST search Inventory before proposing new agents."
+    strong_match_action: "Prompt user: Reuse? Extend? Build new?"
+    max_similar_agents: 3    # Alert if 4+ similar exist
+    sprawl_alert_threshold: 0.80
+    force_justification: true  # Manager must explain why not reusing
+
+  asset_status_lifecycle: ["ACTIVE", "BETA", "DEPRECATED", "ARCHIVED"]
+
+  verification_schedule:
+    dataset: "Weekly (BigQuery table exists, queryable)"
+    service: "Monthly (API enabled, quota available)"
+    model: "Monthly (endpoint available, newer versions?)"
+    agent: "Daily (health check 200, A2A card accessible)"
+    skill: "On commit (file exists at SHA, deps resolve)"
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 14: EXTERNAL DATA SOURCES
+# ═══════════════════════════════════════════════════════════════════
+
+external_data_sources:
+  public_apis:
+    pdb_rcsb:
+      url: "https://data.rcsb.org/rest/v1"
+      auth: "None"
+      rate_limit: "5 requests/second"
+      use_for: "Protein structure fetch by PDB ID"
+      egress_policy: "allow-pdb-only"
+
+    uniprot:
+      url: "https://www.uniprot.org/uniprotkb/"
+      auth: "API key (optional)"
+      rate_limit: "~10 requests/second"
+      use_for: "Protein sequences, annotations, cross-references"
+      egress_policy: "allow_public_bio_apis"
+
+    pubchem:
+      url: "https://pubchem.ncbi.nlm.nih.gov/rest/pug/"
+      auth: "None"
+      rate_limit: "Standard HTTP"
+      use_for: "Compound search by name/SMILES/InChI"
+      egress_policy: "allow_public_bio_apis"
+
+    ncbi_entrez:
+      url: "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
+      auth: "API key (recommended, 10 req/s vs 3 req/s)"
+      rate_limit: "3/sec without key, 10/sec with key"
+      use_for: "BLAST queries, gene lookups, sequence retrieval"
+      egress_policy: "allow_public_bio_apis"
+
+    chembl:
+      url: "https://www.ebi.ac.uk/chembl/api/data/"
+      auth: "None"
+      rate_limit: "Standard HTTP"
+      use_for: "Bioactivity data, compound targets, assay results"
+      egress_policy: "allow_public_bio_apis"
+
+    clinicaltrials_gov:
+      url: "https://clinicaltrials.gov/api/v2/"
+      auth: "None"
+      rate_limit: "Standard HTTP"
+      use_for: "Clinical trial data, endpoints, enrollment"
+      egress_policy: "allow_public_bio_apis"
+
+  bigquery_public_datasets:
+    - name: "1000 Genomes"
+      table: "bigquery-public-data.human_genome_variants.1000_genomes_phase_3_optimized_schema_variants_20150220"
+      size: "~500 GB, 84.4M variants"
+      use_for: "Population frequency filtering, GWAS benchmark"
+
+    - name: "ClinVar"
+      table: "bigquery-public-data.human_genome_variants.clinvar_hg38"
+      size: "~2 GB"
+      use_for: "Clinical significance annotation, pathogenicity classification"
+
+    - name: "gnomAD"
+      table: "bigquery-public-data.human_genome_variants.genomes"
+      size: "~5 TB"
+      use_for: "Rare variant filtering (AF < 0.01), population-specific lookups"
+
+    - name: "FDA FAERS"
+      table: "bigquery-public-data.fda_drug.drug_label"
+      size: "~10 GB"
+      use_for: "Adverse event analysis, drug safety signals"
+
+    - name: "Google Patents"
+      table: "bigquery-public-data.patents.publications"
+      size: "~1 TB"
+      use_for: "Patent landscape, freedom-to-operate analysis"
+
+    - name: "NCBI Gene"
+      table: "bigquery-public-data.ncbi_gene.gene_info"
+      size: "~1 GB"
+      use_for: "Gene annotation, nomenclature lookup"
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 15: TOOLING PREFERENCES BY DOMAIN
+# ═══════════════════════════════════════════════════════════════════
+
+tooling_preferences:
+  docking:
+    preferred: "GNINA"
+    rationale: "CNN-based scoring + GPU acceleration; validated in lifescience-pipeline"
+    alternatives: ["AutoDock Vina (CPU-only budgets)", "Smina"]
+  molecular_dynamics:
+    preferred: "GROMACS"
+    rationale: "Production-validated in lifescience-pipeline, drug-discovery repos"
+    alternatives: ["OpenMM (different force fields)"]
+  structure_prediction:
+    preferred: "AlphaFold (Vertex AI)"
+    rationale: "Validated in drug-discovery repo"
+    alternatives: ["ESMFold (sequence length limits)"]
+  cheminformatics:
+    preferred: "RDKit"
+    rationale: "Standard for filtering, ADMET, PAINS, descriptors"
+    alternatives: ["OpenBabel (format conversion only)"]
+  receptor_preparation:
+    preferred: "PDBFixer"
+    rationale: "Handles missing residues, protonation, ligand removal"
+  conformer_generation:
+    preferred: "RDKit (ETKDG)"
+    rationale: "Standard method for 3D structure generation"
+  variant_calling:
+    preferred: "DeepVariant"
+    rationale: "State-of-the-art accuracy for SNP/indel; open-source"
+  sequence_alignment:
+    preferred: "BWA-MEM2 or Minimap2"
+    rationale: "BWA-MEM2 for short reads, Minimap2 for long reads"
+  orchestration:
+    preferred: "Cloud Workflows"
+    rationale: "Native GCP DAG with error handling, serverless"
+    alternatives: ["Kubeflow Pipelines (ML lineage needed)"]
+  storage:
+    preferred: "GCS (primary) + BigQuery (analytics)"
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 16: MONITORING & OBSERVABILITY
+# ═══════════════════════════════════════════════════════════════════
+
+observability:
+  stack:
+    cloud_trace: "End-to-end latency for multi-agent flows, Agent Engine call tracing"
+    cloud_logging: "Structured logs from all agents, tools, and GCP services"
+    cloud_monitoring: "Custom metrics, dashboards, alerting"
+    audit_logs: "Immutable record of all resource changes and data access"
+
+  key_metrics:
+    - "Agent latency (total + per-round)"
+    - "Cost per unit ($/genome, $/compound, $/prediction)"
+    - "Error rate by component (consultant, tool, service)"
+    - "Spot VM preemption rate and cost savings"
+    - "Batch job queue depth and completion time"
+    - "DLP findings and audit log volumes"
+    - "Inventory search hit rate and reuse ratio"
+
+  alerting:
+    - "Budget burn rate > 80% → alert"
+    - "Agent health check fails → alert + auto-restart"
+    - "Spot VM preemption rate > 30% → alert + consider on-demand fallback"
+    - "Error rate > 5% in 15-min window → alert"
+    - "Latency P99 > 2x baseline → alert"
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 17: REGION & LOCATION GUIDANCE
+# ═══════════════════════════════════════════════════════════════════
+
+regions:
+  gemini_3:
+    location: "global"
+    note: "MUST use 'global' endpoint. Regional endpoints return 404 for Gemini 3 Preview."
+
+  claude_vertex:
+    location: "us-east5"
+    note: "Only confirmed working region. us-east1, europe-west1, global all return 404."
+    env_override: "CLAUDE_VERTEX_REGION"
+
+  biotech_workloads:
+    default: "us-central1"
+    rationale: "Best GPU availability, most services, lowest cost"
+    options:
+      us_central1:
+        gpus: ["T4", "L4", "A100", "H100"]
+        healthcare_api: true
+        note: "Default — best GPU availability"
+        relative_cost: "1.0x"
+      us_east4:
+        gpus: ["T4", "L4", "A100"]
+        healthcare_api: true
+        note: "East coast, low latency to NIH/FDA"
+        relative_cost: "~1.0x"
+      europe_west4:
+        gpus: ["T4", "L4", "A100"]
+        healthcare_api: true
+        note: "EU data residency (GDPR)"
+        relative_cost: "~1.05x"
+      europe_west1:
+        gpus: ["T4", "L4"]
+        healthcare_api: true
+        note: "EU alternative (fewer GPUs)"
+        relative_cost: "~1.05x"
+      asia_southeast1:
+        gpus: ["T4", "L4"]
+        healthcare_api: true
+        note: "APAC data residency"
+        relative_cost: "~1.10x"
+
+  data_residency_rules:
+    us_data: "us-central1 or us-east4"
+    eu_data: "europe-west4 (GDPR-compliant)"
+    note: "No multi-region unless explicitly approved by Compliance Officer."
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 18: A2A PROTOCOL
+# ═══════════════════════════════════════════════════════════════════
+
 a2a:
   description: "Agent-to-Agent protocol for inter-agent communication and discovery"
   native_on: "Vertex AI Agent Engine"
   agent_card: "Every Agent Engine agent auto-publishes an A2A Agent Card"
   discovery: "Agents discover each other via Agent Card registry"
+  reuse_pattern: |
+    Specialist agents (Molecular Filter, Docking, Scoring) are deployed once
+    and reused across multiple workflow agents via A2A calls.
+    Workflow Agent A calls the SAME specialists as Workflow Agent B — no redeploy.
   note: "Prefer Agent Engine for A2A interop. Cloud Run agents need manual A2A wrappers."
 
-# ─── User-Facing Distribution ──────────────────────────────────
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 19: USER-FACING DISTRIBUTION
+# ═══════════════════════════════════════════════════════════════════
+
 distribution:
   platform: "gemini_enterprise"
   note: "The orchestrator agent is registered on Gemini Enterprise for scientist access."
   orchestrator_runtime: "agent_engine"
   rule: "Orchestrators MUST run on Agent Engine, never Cloud Run."
+  two_tier_model:
+    build_time: "Board + Dev Team (design and build agents)"
+    run_time: "Orchestrator + Pipeline agents (serve scientists via Gemini Enterprise)"
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 20: GCP SERVICE CATALOG (quick reference)
+# ═══════════════════════════════════════════════════════════════════
+# Full details in data/gcp_service_catalog.md. Summary here for quick consultant reference.
+
+gcp_services:
+  compute:
+    cloud_batch: "Fully managed batch processing with GPU/Spot. Task arrays up to 10K."
+    cloud_run: "Serverless containers, scale-to-zero, L4 GPU preview."
+    gke: "Managed Kubernetes. Autopilot (pay-per-pod) or Standard."
+    compute_engine: "IaaS VMs. Spot/CUD/SUD discounts."
+
+  ai_ml:
+    vertex_ai_platform: "Unified ML: training, deployment, tuning, 150+ models."
+    vertex_ai_agent_engine: "Managed agent hosting. A2A-native, session state, Gemini Enterprise."
+    vertex_ai_vector_search: "Managed ANN for billions of vectors (~$90/mo per shard)."
+    model_garden: "Pre-trained models: Gemini, MedGemma, TxGemma, AlphaFold, DeepVariant, ESM-2."
+
+  data:
+    bigquery: "Serverless data warehouse. 100+ public datasets. $6.25/TB scanned."
+    cloud_storage: "Global object storage. Standard/Nearline/Coldline/Archive."
+    firestore: "Serverless NoSQL, real-time sync, strong consistency."
+    healthcare_api: "FHIR/DICOM/HL7v2. HIPAA-compliant."
+
+  orchestration:
+    cloud_workflows: "Serverless workflow orchestration (DEFAULT). $0.01/1K steps."
+    pubsub: "Global real-time messaging. $40/TB ingested."
+    cloud_composer: "Managed Airflow. $300+/mo. Recurring schedules only."
+    dataflow: "Managed Apache Beam. VCF→BigQuery, FHIR processing."
+
+  security:
+    vpc_sc: "Security perimeters. Free."
+    cloud_kms: "Managed encryption keys, CMEK, HSM."
+    cloud_dlp: "Sensitive data detection. $1-6/GB."
+    audit_logs: "Immutable audit trail. Admin Activity free."
+    org_policies: "Centralized constraints (data residency, VPC)."
+
+  devops:
+    artifact_registry: "Docker/container registry + vulnerability scanning."
+    secret_manager: "API keys, credentials, certificates."
+    cloud_build: "Serverless CI/CD. Terraform + Docker + deploy."
+    cloud_logging: "Structured logs. 50 GB/mo free."
+    cloud_monitoring: "Metrics, dashboards, alerting."
+    cloud_trace: "Distributed tracing."
+    filestore: "Managed NFS (AlphaFold databases, Nextflow)."
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 21: COMMON ANTI-PATTERNS
+# ═══════════════════════════════════════════════════════════════════
+# Consultants MUST challenge proposals that exhibit these patterns.
+
+anti_patterns:
+  gcp_architecture:
+    - pattern: "Raw VMs instead of managed services"
+      fix: "Use Cloud Run, Cloud Batch, Agent Engine, or GKE Autopilot"
+    - pattern: "GKE when Cloud Batch suffices"
+      fix: "Cloud Batch for embarrassingly parallel. GKE only for persistent services."
+    - pattern: "Data locality mismatch (compute in us-central1, data in asia)"
+      fix: "Co-locate compute and data in same region"
+    - pattern: "No consideration of service quotas"
+      fix: "Check Agent Engine limits (100 agents/project, 10K concurrent sessions)"
+    - pattern: "Missing health checks"
+      fix: "Cloud Run liveness probes, Agent Engine session monitoring"
+
+  cost:
+    - pattern: "A100 GPU without justification"
+      fix: "Default to T4. A100 only for AlphaFold multimer or large training."
+    - pattern: "On-demand VMs for fault-tolerant batch"
+      fix: "Spot VMs mandatory for batch (60-91% savings)"
+    - pattern: "No storage lifecycle rules"
+      fix: "Nearline after 7 days, delete after 30 days"
+    - pattern: "Gemini Pro for tasks Flash can handle"
+      fix: "Flash for linting, validation, retrieval. Pro only for complex reasoning."
+    - pattern: "No budget cap or cost ceiling"
+      fix: "Every blueprint needs estimated_monthly_usd + hard_cap_usd"
+    - pattern: "Storing intermediate data indefinitely in Standard tier"
+      fix: "Intermediate data is reproducible. Delete after 30 days."
+
+  scientific:
+    - pattern: "No protein preparation before docking"
+      fix: "PDBFixer: missing residues, protonation, ligand removal"
+    - pattern: "Rigid docking for flexible binding sites"
+      fix: "Use DiffDock or MD ensemble for flexible sites"
+    - pattern: "Single docking score without ensemble"
+      fix: "Consensus across 2-3 engines (DiffDock + GNINA + Vina)"
+    - pattern: "Insufficient dataset for ML (<100 compounds)"
+      fix: "ADMET models need >1K training compounds. <100 = overfitting risk."
+    - pattern: "DiffDock on metal-containing proteins"
+      fix: "Use rigid docking + MD for metalloproteins"
+    - pattern: "Screening without known actives as positive controls"
+      fix: "Include literature-validated actives for benchmarking"
+    - pattern: "No ADMET filter before expensive GPU compute"
+      fix: "Always: RDKit Lipinski/PAINS → filter → THEN GPU docking"
+
+  compliance:
+    - pattern: "PHI/PII without explicit data classification"
+      fix: "Every blueprint MUST declare data_classification"
+    - pattern: "No audit logging for regulatory workflows"
+      fix: "Cloud Audit Logs non-negotiable for HIPAA/GxP/FDA"
+    - pattern: "Missing encryption at rest or in transit"
+      fix: "Google-managed default. CMEK for PHI/genomic."
+    - pattern: "No egress policy specified"
+      fix: "Default deny-all. Explicit allowlist for external APIs."
+    - pattern: "roles/owner or roles/editor on service accounts"
+      fix: "Least privilege. Only specific roles per pipeline stage."
+    - pattern: "Secrets in plaintext (env vars, code, config)"
+      fix: "ALL credentials in Secret Manager."
+    - pattern: "No data residency specification"
+      fix: "Declare region. US-only or EU-only per regulation."
+
+  genomics:
+    - pattern: "No reference genome version specified"
+      fix: "Always declare hg19 vs hg38. Matters for variant annotation."
+    - pattern: "Missing clinical-grade requirements check"
+      fix: "VEP for clinical reporting. pLDDT check for AlphaFold."
+    - pattern: "No batch effect correction for multi-lab data"
+      fix: "ComBat/SVA correction for RNA-seq across labs"
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 22: REFERENCE IMPLEMENTATIONS
+# ═══════════════════════════════════════════════════════════════════
+# Code Gen reads deployment patterns from these repos.
+
+reference_repos:
+  diffdock_paper:
+    path: "diffdock-paper/"
+    patterns: "Cloud Batch + L4 GPUs, GCS staging, container images, BigQuery logging"
+    services: ["Cloud Batch", "GCS", "BigQuery", "Artifact Registry"]
+
+  drug_discovery:
+    path: "drug-discovery/"
+    patterns: "Modular pipeline (AlphaFold→DiffDock→GROMACS→TxGemma), GCS URI passing"
+    services: ["Cloud Batch", "GCS", "Model Garden"]
+
+  lifescience_pipeline:
+    path: "lifescience-pipeline/"
+    patterns: "GROMACS MD + GNINA docking orchestration"
+    services: ["Cloud Batch", "GCS", "Filestore"]
+
+  federated_genomic:
+    path: "biotech-implementations/Federated_Genomic/"
+    patterns: "VPC-SC perimeter, federated learning with TFF, Pub/Sub coordination"
+    services: ["VPC-SC", "Pub/Sub", "Cloud Batch"]
+
+  multiomnic_ref:
+    path: "biotech-implementations/multiomnic-ref/"
+    patterns: "Nextflow on Cloud Batch, DeepVariant, VCF→BigQuery via Dataflow"
+    services: ["Cloud Batch", "Nextflow", "DeepVariant", "Dataflow", "BigQuery"]
+
+blueprint_templates:
+  - name: "Drug Screening Pipeline"
+    workflow: "filter → dock → score → ADMET"
+  - name: "Variant Calling Pipeline"
+    workflow: "align → call → annotate → filter"
+  - name: "Protein Engineering"
+    workflow: "structure → design → validate"
