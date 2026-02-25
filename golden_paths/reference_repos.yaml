@@ -1,0 +1,56 @@
+assets:
+  - asset_id: inv-repo-diffdock-paper
+    category: REPO
+    name: "DiffDock on GCP (Production)"
+    description: "Production DiffDock deployment on Cloud Batch with L4 GPUs. Real container images, GCS I/O patterns."
+    tags: [reference, diffdock, cloud-batch, gpu, production, gcs]
+    source: "diffdock-paper/"
+    patterns_provided:
+      - "Cloud Batch job submission with GPU"
+      - "GCS mount and staging pattern"
+      - "Container image build and push"
+      - "BigQuery logging for docking results"
+
+  - asset_id: inv-repo-drug-discovery
+    category: REPO
+    name: "Modular Drug Discovery Pipeline"
+    description: "Multi-step pipeline: AlphaFold -> DiffDock -> GROMACS -> TxGemma analysis."
+    tags: [reference, drug-discovery, pipeline, alphafold, diffdock, gromacs, modular]
+    source: "drug-discovery/"
+    patterns_provided:
+      - "Modular pipeline architecture"
+      - "Step-by-step handoff between tools"
+      - "TxGemma integration for analysis"
+
+  - asset_id: inv-repo-lifescience-pipeline
+    category: REPO
+    name: "Target-to-Hit Pipeline"
+    description: "End-to-end: target identification -> GROMACS MD -> GNINA docking."
+    tags: [reference, lifescience, gromacs, gnina, docking, md]
+    source: "lifescience-pipeline/"
+    patterns_provided:
+      - "GROMACS MD simulation on GCP"
+      - "GNINA CNN-based docking"
+      - "Pipeline orchestration"
+
+  - asset_id: inv-repo-federated-genomic
+    category: REPO
+    name: "Federated Genomic Learning"
+    description: "Sovereign federated learning with 3 nodes, VPC-SC isolation, TFF."
+    tags: [reference, federated-learning, genomics, vpc-sc, security]
+    source: "biotech-implementations/Federated_Genomic/"
+    patterns_provided:
+      - "VPC-SC perimeter configuration"
+      - "Federated learning with TFF"
+      - "Pub/Sub coordination"
+
+  - asset_id: inv-repo-multiomnic
+    category: REPO
+    name: "Multi-Omics Reference Pipeline"
+    description: "Nextflow on Cloud Batch, DeepVariant, VCF-to-BigQuery pipeline."
+    tags: [reference, genomics, nextflow, deepvariant, bigquery, cloud-batch]
+    source: "biotech-implementations/multiomnic-ref/"
+    patterns_provided:
+      - "Nextflow on Cloud Batch"
+      - "DeepVariant integration"
+      - "VCF to BigQuery ingestion"

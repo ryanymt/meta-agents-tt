@@ -1,0 +1,71 @@
+assets:
+  - asset_id: inv-svc-gcs
+    category: SERVICE
+    name: Cloud Storage (GCS)
+    description: "Object storage for any data type. Primary storage for molecular files (PDB, SDF, FASTA), model weights, and pipeline I/O."
+    tags: [storage, object, files, molecular-data, pdb, sdf, fasta]
+    status: ACTIVE
+    cost_hint:
+      type: "per_gb_month"
+      examples:
+        - "Standard: $0.020/GB/month"
+        - "Nearline: $0.010/GB/month"
+        - "Archive: $0.0012/GB/month"
+    use_cases:
+      - "Molecular structure files (PDB, SDF, MOL2)"
+      - "Sequence files (FASTA, FASTQ, BAM, VCF)"
+      - "Model weights and checkpoints"
+      - "Pipeline intermediate files"
+
+  - asset_id: inv-svc-bigquery
+    category: SERVICE
+    name: BigQuery
+    description: "Serverless data warehouse. SQL analytics at petabyte scale. Has public biotech datasets built in."
+    tags: [storage, analytics, sql, warehouse, datasets, genomics]
+    status: ACTIVE
+    cost_hint:
+      type: "per_query"
+      examples:
+        - "Storage: $0.020/GB/month"
+        - "Queries: $6.25/TB scanned (on-demand)"
+        - "First 1TB/month free"
+    use_cases:
+      - "Chemical compound screening results"
+      - "Genomic variant analysis"
+      - "Clinical trial data analytics"
+      - "Cross-referencing public datasets"
+    quick_start: "SELECT * FROM `bigquery-public-data.human_genome_variants.1000_genomes`"
+
+  - asset_id: inv-svc-filestore
+    category: SERVICE
+    name: Filestore
+    description: "Managed NFS file system. Shared filesystem for HPC workloads that need POSIX file access."
+    tags: [storage, nfs, shared-filesystem, hpc]
+    status: ACTIVE
+    cost_hint:
+      type: "per_gb_month"
+      examples:
+        - "Basic HDD: $0.176/GB/month"
+        - "Basic SSD: $0.286/GB/month"
+    use_cases:
+      - "Shared data for Cloud Batch GPU jobs"
+      - "GROMACS trajectory files (need POSIX)"
+    constraints:
+      - "Minimum 1TB (HDD) or 2.5TB (SSD)"
+      - "Consider GCS FUSE first (cheaper for most cases)"
+
+  - asset_id: inv-svc-secret-manager
+    category: SERVICE
+    name: Secret Manager
+    description: "Store and manage API keys, credentials, and other secrets. Versioned and audited."
+    tags: [security, secrets, credentials, api-keys]
+    status: ACTIVE
+    cost_hint:
+      type: "per_secret"
+      examples:
+        - "$0.06/secret version/month"
+        - "Access: $0.03/10K operations"
+    use_cases:
+      - "HuggingFace API tokens"
+      - "Database credentials"
+      - "Service account keys (prefer Workload Identity instead)"

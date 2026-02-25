@@ -1,0 +1,35 @@
+assets:
+  - asset_id: inv-tpl-drug-screening
+    category: TEMPLATE
+    name: "Drug Screening Pipeline Template"
+    description: "Template for virtual drug screening: compound filtering -> docking -> scoring -> ADMET."
+    tags: [template, drug-screening, pipeline, docking, virtual-screening]
+    template_agents:
+      - "compound_filter_agent (Cloud Run, RDKit)"
+      - "docking_agent (Cloud Batch + GPU, DiffDock)"
+      - "scoring_agent (Cloud Run, MM-GBSA or rescoring)"
+      - "admet_agent (Cloud Run, ADMET prediction)"
+    template_infra:
+      - "GCS bucket (molecular files)"
+      - "BigQuery dataset (results)"
+
+  - asset_id: inv-tpl-variant-calling
+    category: TEMPLATE
+    name: "Variant Calling Pipeline Template"
+    description: "Template for genomic variant calling: align -> call -> annotate -> filter."
+    tags: [template, genomics, variant-calling, pipeline]
+    template_agents:
+      - "alignment_agent (Cloud Batch, BWA-MEM2)"
+      - "variant_caller_agent (Cloud Batch + GPU, DeepVariant)"
+      - "annotation_agent (Cloud Run, VCF annotation)"
+      - "filter_agent (BigQuery SQL, population filtering)"
+
+  - asset_id: inv-tpl-protein-engineering
+    category: TEMPLATE
+    name: "Protein Engineering Template"
+    description: "Template for protein design: structure prediction -> mutation design -> stability assessment."
+    tags: [template, protein-engineering, structure, design]
+    template_agents:
+      - "structure_agent (Cloud Batch + GPU, AlphaFold)"
+      - "mutation_agent (Cloud Run, protein design)"
+      - "stability_agent (Cloud Batch, GROMACS MD)"

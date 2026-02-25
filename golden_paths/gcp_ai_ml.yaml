@@ -1,0 +1,117 @@
+assets:
+  - asset_id: inv-model-gemini-3-flash
+    category: MODEL
+    name: Gemini 3.0 Flash
+    description: "Fast, cost-effective Gemini 3 model. Good for agent orchestration, text analysis, structured output."
+    tags: [llm, gemini, fast, cheap, orchestration, text]
+    status: ACTIVE
+    cost_hint:
+      type: "per_token"
+      examples:
+        - "Preview pricing - TBD"
+    use_cases:
+      - "Manager Agent (orchestration)"
+      - "Blueprint Linter (validation)"
+      - "Lightweight text analysis"
+      - "Structured JSON extraction"
+
+  - asset_id: inv-model-gemini-3-pro
+    category: MODEL
+    name: Gemini 3.0 Pro
+    description: "Most capable Gemini 3 model. Best for complex reasoning, multi-step analysis, scientific understanding."
+    tags: [llm, gemini, reasoning, complex, scientific]
+    status: ACTIVE
+    cost_hint:
+      type: "per_token"
+      examples:
+        - "Preview pricing - TBD"
+    use_cases:
+      - "Consultant agents (domain expertise)"
+      - "Complex scientific reasoning"
+      - "Code generation"
+
+  - asset_id: inv-model-medgemma
+    category: MODEL
+    name: MedGemma
+    description: "Medical domain Gemma model. Fine-tuned on medical text. Available via Model Garden."
+    tags: [llm, medical, clinical, specialized, model-garden]
+    status: PREVIEW
+    cost_hint:
+      type: "self_hosted"
+      examples:
+        - "Requires GPU instance for serving"
+    use_cases:
+      - "Medical literature analysis"
+      - "Clinical notes processing"
+      - "Drug-disease relationship extraction"
+    constraints:
+      - "Requires self-hosting via GKE or Cloud Run GPU"
+      - "Not available as managed API endpoint"
+
+  - asset_id: inv-model-txgemma
+    category: MODEL
+    name: TxGemma
+    description: "Therapeutics Gemma model. Specialized for drug discovery, molecular property prediction."
+    tags: [llm, drug-discovery, therapeutics, molecular, model-garden]
+    status: PREVIEW
+    cost_hint:
+      type: "self_hosted"
+      examples:
+        - "Requires GPU instance for serving"
+    use_cases:
+      - "Molecular property prediction"
+      - "Drug-target interaction analysis"
+      - "ADMET prediction"
+    constraints:
+      - "Requires self-hosting"
+      - "Best used alongside traditional tools (RDKit)"
+
+  - asset_id: inv-model-alphafold
+    category: MODEL
+    name: AlphaFold (via Model Garden / Cloud Batch)
+    description: "Protein structure prediction. Run via Cloud Batch with GPU. AlphaFold DB also available via API."
+    tags: [protein, structure-prediction, gpu, cloud-batch, alphafold]
+    status: ACTIVE
+    cost_hint:
+      type: "per_prediction"
+      examples:
+        - "Single protein (~300 residues): ~$2-5 on A100"
+        - "AlphaFold DB lookup: free"
+    use_cases:
+      - "Protein structure prediction for docking"
+      - "Binding site identification"
+    constraints:
+      - "A100 GPU recommended for inference"
+      - "Long sequences (>1000 residues) are slow"
+
+  - asset_id: inv-svc-vector-search
+    category: SERVICE
+    name: Vertex AI Vector Search
+    description: "Managed vector similarity search. For semantic search across inventory, skill discovery."
+    tags: [ai, vector-search, embeddings, semantic-search, similarity]
+    status: ACTIVE
+    cost_hint:
+      type: "per_query"
+      examples:
+        - "Index: depends on size"
+        - "Queries: ~$0.001/query at small scale"
+    use_cases:
+      - "Inventory skill discovery"
+      - "Agent reuse detection"
+      - "Semantic search for datasets and models"
+
+  - asset_id: inv-svc-vertex-agent-engine
+    category: SERVICE
+    name: Vertex AI Agent Engine
+    description: "Managed runtime for deploying ADK agents. Handles scaling, sessions, memory."
+    tags: [ai, agent-engine, deployment, managed, production]
+    status: ACTIVE
+    cost_hint:
+      type: "per_request"
+      examples:
+        - "Based on underlying model + compute"
+    use_cases:
+      - "Production deployment of generated agents"
+      - "Managed session persistence"
+    constraints:
+      - "Requires ADK-compatible agent structure"

@@ -1,0 +1,80 @@
+assets:
+  - asset_id: inv-ds-1000-genomes
+    category: DATASET
+    name: "1000 Genomes Project"
+    description: "Whole-genome sequencing data from 2,504 individuals. Variant calls (SNPs, indels, SVs)."
+    tags: [genomics, variants, population, snp, vcf, bigquery]
+    status: ACTIVE
+    cost_hint:
+      type: "bigquery_query"
+      examples:
+        - "~50TB total. Query cost depends on columns scanned."
+    use_cases:
+      - "Population frequency filtering for variant calling"
+      - "Benchmark dataset for genomics pipelines"
+    bigquery_table: "bigquery-public-data.human_genome_variants.1000_genomes_phase_3_optimized_schema_variants_20150220"
+
+  - asset_id: inv-ds-clinvar
+    category: DATASET
+    name: "ClinVar"
+    description: "NCBI database of clinically significant genetic variants. Pathogenicity classifications."
+    tags: [genomics, clinical, variants, pathogenicity, bigquery]
+    status: ACTIVE
+    use_cases:
+      - "Clinical significance annotation"
+      - "Pathogenic variant identification"
+    bigquery_table: "bigquery-public-data.human_genome_variants.clinvar_hg38"
+
+  - asset_id: inv-ds-gnomad
+    category: DATASET
+    name: "gnomAD"
+    description: "Genome Aggregation Database. Allele frequencies from 76,156 genomes."
+    tags: [genomics, population, allele-frequency, bigquery]
+    status: ACTIVE
+    use_cases:
+      - "Rare variant filtering (allele frequency < 0.01)"
+      - "Population-specific frequency lookups"
+
+  - asset_id: inv-ds-fda-faers
+    category: DATASET
+    name: "FDA FAERS"
+    description: "FDA Adverse Event Reporting System. Drug safety / pharmacovigilance data."
+    tags: [drug-safety, adverse-events, fda, pharmacovigilance, bigquery]
+    status: ACTIVE
+    use_cases:
+      - "Drug safety signal detection"
+      - "Adverse event analysis for existing drugs"
+      - "Drug repurposing safety assessment"
+    bigquery_table: "bigquery-public-data.fda_drug.drug_label"
+
+  - asset_id: inv-ds-google-patents
+    category: DATASET
+    name: "Google Patents Public Data"
+    description: "Patent data with full-text search. Useful for freedom-to-operate analysis."
+    tags: [patents, ip, freedom-to-operate, bigquery]
+    status: ACTIVE
+    use_cases:
+      - "Patent landscape analysis for drug candidates"
+      - "Freedom-to-operate checks"
+
+  - asset_id: inv-ds-chembl
+    category: DATASET
+    name: "ChEMBL"
+    description: "Open large-scale bioactivity database. Binding affinities, ADMET data for millions of compounds."
+    tags: [cheminformatics, bioactivity, compounds, drug-discovery, binding]
+    status: ACTIVE
+    use_cases:
+      - "Compound activity lookup"
+      - "SAR analysis (structure-activity relationship)"
+      - "Training data for QSAR models"
+
+  - asset_id: inv-ds-pdb
+    category: DATASET
+    name: "RCSB Protein Data Bank"
+    description: "3D structures of proteins, nucleic acids. ~200K structures. REST API access."
+    tags: [structural, protein, pdb, crystal-structure, api]
+    status: ACTIVE
+    use_cases:
+      - "Protein target structures for docking"
+      - "Binding site analysis"
+      - "Structural alignment"

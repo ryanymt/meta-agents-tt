@@ -1,0 +1,45 @@
+assets:
+  - asset_id: inv-svc-healthcare-api
+    category: SERVICE
+    name: Cloud Healthcare API
+    description: "Managed FHIR, DICOM, and HL7v2 data stores. For clinical data integration."
+    tags: [healthcare, fhir, dicom, hl7, clinical, compliance]
+    status: ACTIVE
+    use_cases:
+      - "Clinical trial data storage (FHIR)"
+      - "Medical imaging pipelines (DICOM)"
+    constraints:
+      - "Requires HIPAA BAA for PHI data"
+      - "Region-restricted for some data"
+
+  - asset_id: inv-svc-vpc-sc
+    category: SERVICE
+    name: VPC Service Controls
+    description: "Security perimeter around GCP services. Prevents data exfiltration."
+    tags: [security, compliance, perimeter, data-protection]
+    status: ACTIVE
+    use_cases:
+      - "PHI/PII data protection"
+      - "Regulatory compliance (HIPAA, GDPR)"
+      - "Federated learning with data isolation"
+
+  - asset_id: inv-svc-dlp-api
+    category: SERVICE
+    name: Cloud DLP API
+    description: "Data Loss Prevention. Detects and redacts sensitive data (PII, PHI)."
+    tags: [security, compliance, pii, phi, redaction]
+    status: ACTIVE
+    use_cases:
+      - "De-identify clinical data before analysis"
+      - "Scan datasets for unintended PII"
+
+  - asset_id: inv-svc-audit-logging
+    category: SERVICE
+    name: Cloud Audit Logs
+    description: "Automatic audit logging for all GCP API calls. Required for regulatory compliance."
+    tags: [security, compliance, audit, logging, regulatory]
+    status: ACTIVE
+    use_cases:
+      - "HIPAA audit trail"
+      - "GxP compliance logging"
+      - "Access tracking for sensitive data"

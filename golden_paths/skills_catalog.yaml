@@ -1,0 +1,146 @@
+assets:
+  # === Cheminformatics ===
+  - asset_id: inv-skill-rdkit-descriptors
+    category: SKILL
+    name: "RDKit Molecular Descriptors"
+    description: "Calculate molecular properties (LogP, TPSA, MW, HBD, HBA, rotatable bonds) using RDKit."
+    tags: [cheminformatics, rdkit, descriptors, logp, lipinski, filtering]
+    verification_level: SILVER
+    runtime_requirements: { gpu_required: false, packages: ["rdkit>=2024.03"] }
+    use_cases:
+      - "Drug-likeness filtering (Lipinski Rule of 5)"
+      - "ADMET property estimation"
+
+  - asset_id: inv-skill-pains-filter
+    category: SKILL
+    name: "PAINS Filter"
+    description: "Detect Pan-Assay Interference Compounds using SMARTS patterns."
+    tags: [cheminformatics, rdkit, pains, filter, hit-triage]
+    verification_level: SILVER
+    runtime_requirements: { gpu_required: false, packages: ["rdkit>=2024.03"] }
+
+  - asset_id: inv-skill-admet-prediction
+    category: SKILL
+    name: "ADMET Prediction"
+    description: "Predict absorption, distribution, metabolism, excretion, and toxicity properties."
+    tags: [cheminformatics, admet, toxicity, pharmacokinetics, drug-likeness]
+    verification_level: SILVER
+    runtime_requirements: { gpu_required: false, packages: ["rdkit>=2024.03", "deepchem>=2.7"] }
+
+  - asset_id: inv-skill-conformer-generation
+    category: SKILL
+    name: "3D Conformer Generation"
+    description: "Generate 3D molecular conformers from SMILES using RDKit's ETKDG algorithm."
+    tags: [cheminformatics, rdkit, 3d, conformers, etkdg]
+    verification_level: SILVER
+    runtime_requirements: { gpu_required: false, packages: ["rdkit>=2024.03"] }
+
+  - asset_id: inv-skill-similarity-search
+    category: SKILL
+    name: "Chemical Similarity Search"
+    description: "Tanimoto similarity search using Morgan fingerprints."
+    tags: [cheminformatics, rdkit, similarity, fingerprints, tanimoto]
+    verification_level: SILVER
+    runtime_requirements: { gpu_required: false, packages: ["rdkit>=2024.03"] }
+
+  # === Structural Biology ===
+  - asset_id: inv-skill-diffdock
+    category: SKILL
+    name: "DiffDock Molecular Docking"
+    description: "Diffusion-based molecular docking for protein-ligand binding prediction."
+    tags: [structural, docking, diffdock, protein-ligand, gpu, binding]
+    verification_level: SILVER
+    runtime_requirements: { gpu_required: true, gpu_type: "L4_minimum", packages: ["torch>=2.0", "pyg"] }
+    use_cases:
+      - "Virtual screening (dock compounds against target)"
+      - "Binding pose prediction"
+
+  - asset_id: inv-skill-alphafold-prediction
+    category: SKILL
+    name: "AlphaFold Structure Prediction"
+    description: "Predict protein 3D structure from amino acid sequence."
+    tags: [structural, alphafold, protein, prediction, gpu]
+    verification_level: GOLD
+    runtime_requirements: { gpu_required: true, gpu_type: "A100_recommended", packages: [] }
+    use_cases:
+      - "Generate protein structure for docking"
+      - "Binding site identification"
+
+  - asset_id: inv-skill-protein-preparation
+    category: SKILL
+    name: "Protein Preparation for Docking"
+    description: "Clean PDB files: remove water, add hydrogens, fix missing residues."
+    tags: [structural, protein, preparation, pdb, biopython]
+    verification_level: SILVER
+    runtime_requirements: { gpu_required: false, packages: ["biopython>=1.82"] }
+
+  - asset_id: inv-skill-gnina-docking
+    category: SKILL
+    name: "GNINA CNN Docking"
+    description: "CNN-scored molecular docking. Combines traditional docking with deep learning scoring."
+    tags: [structural, docking, gnina, cnn, protein-ligand, gpu]
+    verification_level: SILVER
+    runtime_requirements: { gpu_required: true, gpu_type: "T4_minimum", packages: [] }
+    use_cases:
+      - "CNN-scored docking (alternative to DiffDock)"
+      - "Rescoring existing poses"
+
+  # === Genomics ===
+  - asset_id: inv-skill-deepvariant
+    category: SKILL
+    name: "DeepVariant Variant Calling"
+    description: "Deep learning variant caller. Converts BAM to VCF. GPU accelerated."
+    tags: [genomics, variant-calling, deepvariant, vcf, gpu]
+    verification_level: GOLD
+    runtime_requirements: { gpu_required: true, gpu_type: "T4_minimum", packages: [] }
+
+  - asset_id: inv-skill-vcf-annotation
+    category: SKILL
+    name: "VCF Annotation"
+    description: "Annotate VCF variants with ClinVar, gnomAD, dbSNP annotations."
+    tags: [genomics, vcf, annotation, clinvar, gnomad]
+    verification_level: SILVER
+    runtime_requirements: { gpu_required: false, packages: ["cyvcf2>=0.30"] }
+
+  - asset_id: inv-skill-sequence-alignment
+    category: SKILL
+    name: "Sequence Alignment (BWA-MEM2)"
+    description: "Align FASTQ reads to reference genome using BWA-MEM2."
+    tags: [genomics, alignment, bwa, fastq, bam]
+    verification_level: SILVER
+    runtime_requirements: { gpu_required: false, packages: [] }
+    constraints: ["Requires reference genome index"]
+
+  # === Molecular Dynamics ===
+  - asset_id: inv-skill-gromacs-md
+    category: SKILL
+    name: "GROMACS Molecular Dynamics"
+    description: "Run molecular dynamics simulations using GROMACS. GPU accelerated."
+    tags: [structural, molecular-dynamics, gromacs, simulation, gpu]
+    verification_level: SILVER
+    runtime_requirements: { gpu_required: true, gpu_type: "T4_minimum", packages: [] }
+
+  # === Data Access ===
+  - asset_id: inv-skill-pdb-lookup
+    category: SKILL
+    name: "PDB Structure Lookup"
+    description: "Fetch protein structures from the RCSB PDB via REST API."
+    tags: [data-access, pdb, protein, api, fetch]
+    verification_level: GOLD
+    runtime_requirements: { gpu_required: false, packages: ["requests"] }
+
+  - asset_id: inv-skill-uniprot-fetch
+    category: SKILL
+    name: "UniProt Data Fetch"
+    description: "Query UniProt for protein sequences, annotations, and cross-references."
+    tags: [data-access, uniprot, protein, sequences, api]
+    verification_level: SILVER
+    runtime_requirements: { gpu_required: false, packages: ["requests"] }
+
+  - asset_id: inv-skill-pubchem-search
+    category: SKILL
+    name: "PubChem Search"
+    description: "Search PubChem for chemical compounds by name, SMILES, or InChI."
+    tags: [data-access, pubchem, chemical, compounds, api]
+    verification_level: SILVER
+    runtime_requirements: { gpu_required: false, packages: ["requests"] }

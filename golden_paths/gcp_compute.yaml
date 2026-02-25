@@ -1,0 +1,81 @@
+assets:
+  - asset_id: inv-svc-cloud-batch
+    category: SERVICE
+    name: Cloud Batch
+    description: "Managed batch computing for HPC and ML workloads. Supports GPU (T4, L4, A100, H100). Pay only for resources used."
+    tags: [compute, gpu, hpc, batch, molecular-dynamics, docking, training]
+    status: ACTIVE
+    cost_hint:
+      type: "per_hour"
+      examples:
+        - "T4: ~$0.35/hr"
+        - "L4: ~$0.70/hr"
+        - "A100 (40GB): ~$3.67/hr"
+    use_cases:
+      - "AlphaFold structure prediction (GPU)"
+      - "DiffDock molecular docking (GPU)"
+      - "GROMACS molecular dynamics (GPU/CPU)"
+      - "DeepVariant variant calling (GPU)"
+    constraints:
+      - "Max job duration: 7 days"
+      - "GPU availability varies by region"
+    quick_start: "Submit a Cloud Batch job with a container image and GPU resource spec."
+
+  - asset_id: inv-svc-cloud-run
+    category: SERVICE
+    name: Cloud Run
+    description: "Serverless container platform. Auto-scales to zero. Good for stateless API-based agents."
+    tags: [compute, serverless, containers, api, agent-hosting]
+    status: ACTIVE
+    cost_hint:
+      type: "per_request"
+      examples:
+        - "CPU: ~$0.00002/request (100ms)"
+        - "Memory: included up to 32Gi"
+        - "GPU (L4): ~$0.80/hr when active"
+    use_cases:
+      - "Agent hosting (API endpoint)"
+      - "Lightweight filtering (RDKit, ADMET)"
+      - "Data retrieval agents (PDB, UniProt)"
+    constraints:
+      - "Max request timeout: 60 min (gen2)"
+      - "Max memory: 32 Gi"
+      - "GPU support is preview (L4 only)"
+    quick_start: "Deploy a container with gcloud run deploy. Agent SDK handles routing."
+
+  - asset_id: inv-svc-gke
+    category: SERVICE
+    name: Google Kubernetes Engine
+    description: "Managed Kubernetes. For complex multi-container workloads, Nextflow/Cromwell pipelines."
+    tags: [compute, kubernetes, orchestration, pipelines, nextflow]
+    status: ACTIVE
+    cost_hint:
+      type: "per_hour"
+      examples:
+        - "Cluster management: $0.10/hr"
+        - "Plus node costs (same as Compute Engine)"
+    use_cases:
+      - "Nextflow/Cromwell genomics pipelines"
+      - "Multi-step orchestrated workflows"
+      - "Long-running training jobs"
+    constraints:
+      - "More complex than Cloud Batch"
+      - "Requires Kubernetes expertise"
+    quick_start: "Use for Nextflow pipelines. Otherwise prefer Cloud Batch (simpler)."
+
+  - asset_id: inv-svc-cloud-workflows
+    category: SERVICE
+    name: Cloud Workflows
+    description: "Serverless workflow orchestration. Chain GCP services with YAML definitions."
+    tags: [compute, orchestration, workflows, serverless, pipeline]
+    status: ACTIVE
+    cost_hint:
+      type: "per_execution"
+      examples:
+        - "Internal steps: $0.01/1000 steps"
+        - "External calls: based on target service"
+    use_cases:
+      - "Multi-agent pipeline orchestration"
+      - "Async job monitoring and chaining"
+      - "Event-driven agent workflows"
+    quick_start: "Define workflow in YAML. Deploy with gcloud workflows deploy."
